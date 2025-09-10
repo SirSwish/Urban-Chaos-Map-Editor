@@ -21,6 +21,11 @@ namespace UrbanChaosMapEditor.Views
         private void DeleteLight_Click(object sender, RoutedEventArgs e) => DeleteSelectedLight();
         private void CopyLight_Click(object sender, RoutedEventArgs e) => CopySelectedLight();
         private void PasteLight_Click(object sender, RoutedEventArgs e) => PasteLightAtCursor();
+        private const double MinExpandedEditorWidth = 285;  // <-- your minimum when expanded
+        private const double CollapsedRailWidth = 28;       // width when collapsed
+        private double _lastEditorWidth = MinExpandedEditorWidth;
+
+
 
         public MainWindow()
         {
@@ -39,6 +44,26 @@ namespace UrbanChaosMapEditor.Views
             TryEnableDarkTitleBar();
             var vm = DataContext as MainWindowViewModel;
             System.Diagnostics.Debug.WriteLine($"[Recent] VM? {(vm != null)}  Count={(vm?.RecentFiles?.Count ?? -1)}");
+        }
+
+
+        private void EditorExpander_Expanded(object sender, RoutedEventArgs e)
+        {
+            // Enforce the min once expanded and restore last width (clamped to min)
+            EditorCol.MinWidth = MinExpandedEditorWidth;
+            var target = Math.Max(_lastEditorWidth, MinExpandedEditorWidth);
+            EditorCol.Width = new GridLength(target);
+        }
+
+        private void EditorExpander_Collapsed(object sender, RoutedEventArgs e)
+        {
+            // Remember last “usable” width before collapsing
+            var w = EditorCol.ActualWidth;
+            if (w > MinExpandedEditorWidth) _lastEditorWidth = w;
+
+            // Allow the rail to shrink below the expanded min
+            EditorCol.MinWidth = 0;
+            EditorCol.Width = new GridLength(CollapsedRailWidth);
         }
 
         private void TryEnableDarkTitleBar()
@@ -64,51 +89,6 @@ namespace UrbanChaosMapEditor.Views
             ref int pvAttribute,
             int cbAttribute);
 
-        private void HeightsRaise_Click(object sender, RoutedEventArgs e)
-        {
-            if (DataContext is MainWindowViewModel vm) vm.Map.SelectedTool = EditorTool.RaiseHeight;
-        }
-
-        private void HeightsLower_Click(object sender, RoutedEventArgs e)
-        {
-            if (DataContext is MainWindowViewModel vm) vm.Map.SelectedTool = EditorTool.LowerHeight;
-        }
-
-        private void HeightsNone_Click(object sender, RoutedEventArgs e)
-        {
-            if (DataContext is MainWindowViewModel vm) vm.Map.SelectedTool = EditorTool.None;
-        }
-
-        private void HeightsLevel_Click(object sender, RoutedEventArgs e)
-        {
-            if (DataContext is MainWindowViewModel vm) vm.Map.SelectedTool = EditorTool.LevelHeight;
-        }
-
-        private void HeightsFlatten_Click(object sender, RoutedEventArgs e)
-        {
-            if (DataContext is MainWindowViewModel vm)
-                vm.Map.SelectedTool = EditorTool.FlattenHeight;
-        }
-
-        private void HeightsDitch_Click(object sender, RoutedEventArgs e)
-        {
-            if (DataContext is MainWindowViewModel vm) vm.Map.SelectedTool = EditorTool.DitchTemplate;
-        }
-
-        private void Units_PreviewTextInput(object sender, TextCompositionEventArgs e)
-        {
-            e.Handled = !_digits.IsMatch(e.Text);
-        }
-
-        private void Units_OnPaste(object sender, DataObjectPastingEventArgs e)
-        {
-            if (e.DataObject.GetDataPresent(DataFormats.Text))
-            {
-                var text = e.DataObject.GetData(DataFormats.Text) as string ?? "";
-                if (!_digits.IsMatch(text)) e.CancelCommand();
-            }
-            else e.CancelCommand();
-        }
         private void TextureThumb_Click(object sender, RoutedEventArgs e)
         {
             if (DataContext is not MainWindowViewModel shell) return;
@@ -629,22 +609,6 @@ namespace UrbanChaosMapEditor.Views
                 shell.StatusMessage = "Placing light… Click on the map to set X/Z. Right-click/Esc to cancel.";
                 // (Optional) set focus to map so Esc works immediately
                 MapViewControl.Focus();
-            }
-        }
-        private void LightsList_Loaded(object sender, RoutedEventArgs e)
-        {
-            var vm = DataContext as MainWindowViewModel;
-            var mapVm = vm?.Map;
-            System.Diagnostics.Debug.WriteLine(
-                $"[UI] LightsList_Loaded: DC={vm?.GetType().Name ?? "null"}, MapVm?={(mapVm != null)}, " +
-                $"ItemsSource?={(LightsList.ItemsSource != null)}, Items={LightsList.Items.Count}, " +
-                $"BoundCount={(mapVm?.Lights?.Count ?? -1)}");
-
-            // Safety net: if binding didn’t stick for some reason, hook it directly so you can see rows immediately.
-            if (LightsList.ItemsSource == null && mapVm?.Lights != null)
-            {
-                LightsList.ItemsSource = mapVm.Lights;
-                System.Diagnostics.Debug.WriteLine($"[UI] Fallback set ItemsSource -> Items={LightsList.Items.Count}");
             }
         }
         private void DeleteSelectedLight()

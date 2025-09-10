@@ -88,6 +88,8 @@ namespace UrbanChaosMapEditor.ViewModels
         #endregion
 
         #region ====== Commands (declarations) ======
+
+
         public ICommand NewMapCommand { get; }
         public ICommand LoadMapCommand { get; }
         public ICommand OpenRecentCommand { get; }

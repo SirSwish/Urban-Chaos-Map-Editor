@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Windows.Media;
 using System.IO;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Media.Imaging;
 using UrbanChaosMapEditor.Models;
 using UrbanChaosMapEditor.Services;
@@ -80,6 +81,34 @@ namespace UrbanChaosMapEditor.ViewModels
 
     public sealed class MapViewModel : INotifyPropertyChanged
     {
+
+        // === Map Modification Commands ===
+
+        // Heights
+        public ICommand RaiseHeightCommand { get; }
+        public ICommand LowerHeightCommand { get; }
+        public ICommand LevelHeightCommand { get; }
+        public ICommand FlattenHeightCommand { get; }
+        public ICommand DitchTemplateCommand { get; }
+        public ICommand ClearToolCommand { get; }
+
+
+        private bool _isMapLoaded;
+        public bool IsMapLoaded
+        {
+            get => _isMapLoaded;
+            private set
+            {
+                if (_isMapLoaded != value)
+                {
+                    _isMapLoaded = value;
+                    OnPropertyChanged(nameof(IsMapLoaded));
+                    CommandManager.InvalidateRequerySuggested(); // refresh CanExecute
+                }
+            }
+        }
+
+
         // ===== View / overlays =====
         private double _zoom = 1.0;
         public double Zoom { get => _zoom; set { if (_zoom != value) { _zoom = value; OnPropertyChanged(); } } }
@@ -339,6 +368,14 @@ namespace UrbanChaosMapEditor.ViewModels
         {
             System.Diagnostics.Debug.WriteLine("[MapVM] ctor: starting up…");
 
+            var mapSvc = MapDataService.Instance;
+            IsMapLoaded = mapSvc.IsLoaded;
+
+            mapSvc.MapLoaded += (_, __) => IsMapLoaded = true;
+            mapSvc.MapCleared += (_, __) => IsMapLoaded = false;
+            // if bytes reset implies “still loaded”, reflect it:
+            mapSvc.MapBytesReset += (_, __) => IsMapLoaded = mapSvc.IsLoaded;
+
             // Build list once at startup
             System.Diagnostics.Debug.WriteLine("[MapVM] ctor: calling RefreshLightsList()");
             try { RefreshLightsList(); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[MapVM] ctor: RefreshLightsList failed: " + ex.Message); }
@@ -353,6 +390,19 @@ namespace UrbanChaosMapEditor.ViewModels
             {
                 System.Diagnostics.Debug.WriteLine("[MapVM] LightsBytesReset received → RefreshLightsList()");
                 Application.Current?.Dispatcher.Invoke(RefreshLightsList);
+            };
+
+            RaiseHeightCommand = new RelayCommand(_ => SelectedTool = EditorTool.RaiseHeight, _ => IsMapLoaded);
+            LowerHeightCommand = new RelayCommand(_ => SelectedTool = EditorTool.LowerHeight, _ => IsMapLoaded);
+            LevelHeightCommand = new RelayCommand(_ => SelectedTool = EditorTool.LevelHeight, _ => IsMapLoaded);
+            FlattenHeightCommand = new RelayCommand(_ => SelectedTool = EditorTool.FlattenHeight, _ => IsMapLoaded);
+            DitchTemplateCommand = new RelayCommand(_ => SelectedTool = EditorTool.DitchTemplate, _ => IsMapLoaded);
+            ClearToolCommand = new RelayCommand(_ => SelectedTool = EditorTool.None, _ => IsMapLoaded);
+
+            PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(IsMapLoaded))
+                    CommandManager.InvalidateRequerySuggested(); // refresh CanExecute
             };
         }
 

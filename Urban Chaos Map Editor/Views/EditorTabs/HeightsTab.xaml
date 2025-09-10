@@ -1,0 +1,111 @@
+<UserControl x:Class="UrbanChaosMapEditor.Views.Tabs.HeightsTab"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:UrbanChaosMapEditor.ViewModels">
+    <!-- IMPORTANT: no local DataContext here ? it inherits MainWindow's DataContext -->
+
+    <StackPanel Margin="8" Orientation="Vertical">
+        <TextBlock Text="Tools" FontWeight="SemiBold" Margin="0,0,0,6"/>
+
+        <!-- Units / step size -->
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,8" VerticalAlignment="Center">
+            <TextBlock Text="Units:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+            <TextBox Width="64"
+                     Text="{Binding Map.HeightStep, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                     HorizontalContentAlignment="Right"
+                     PreviewTextInput="Units_PreviewTextInput"
+                     DataObject.Pasting="Units_OnPaste"/>
+
+            <TextBlock Text="  Brush:" VerticalAlignment="Center" Margin="12,0,6,0"/>
+            <Slider Width="50"
+                    Height="22"
+                    Minimum="1" Maximum="10"
+                    TickFrequency="1"
+                    IsSnapToTickEnabled="True"
+                    Value="{Binding Map.BrushSize, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+            <TextBlock Text="{Binding Map.BrushSize}"
+                       VerticalAlignment="Center"
+                       Margin="4,0,0,0"
+                       Width="22"
+                       TextAlignment="Right"/>
+        </StackPanel>
+
+        <WrapPanel>
+            <!-- Raise -->
+            <Button Margin="0,0,6,6" Padding="6,6"
+                    ToolTip="{Binding Map.HeightStep, StringFormat=Raise by {0}}"
+                    Command="{Binding Map.RaiseHeightCommand}">
+                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                    <Image Source="/Assets/Icons/raise.ico" Width="24" Height="24" Stretch="Uniform"/>
+                    <TextBlock Text="Raise" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                </StackPanel>
+            </Button>
+
+            <!-- Lower -->
+            <Button Margin="0,0,6,6" Padding="6,6"
+                    ToolTip="{Binding Map.HeightStep, StringFormat=Lower by {0}}"
+                    Command="{Binding Map.LowerHeightCommand}">
+                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                    <Image Source="/Assets/Icons/lower.ico" Width="24" Height="24" Stretch="Uniform"/>
+                    <TextBlock Text="Lower" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                </StackPanel>
+            </Button>
+
+            <!-- Level -->
+            <Button Margin="0,0,6,6" Padding="6,6"
+                    ToolTip="Level: click then drag to copy height to other tiles"
+                    Command="{Binding Map.LevelHeightCommand}">
+                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                    <Image Source="/Assets/Icons/level.ico" Width="24" Height="24" Stretch="Uniform"/>
+                    <TextBlock Text="Level" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                </StackPanel>
+            </Button>
+
+            <!-- Flatten -->
+            <Button Margin="0,0,6,6" Padding="6,6"
+                    ToolTip="Flatten: set height to 0"
+                    Command="{Binding Map.FlattenHeightCommand}">
+                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                    <Image Source="/Assets/Icons/flatten.ico" Width="24" Height="24" Stretch="Uniform"/>
+                    <TextBlock Text="Flatten" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                </StackPanel>
+            </Button>
+        </WrapPanel>
+
+        <Separator Margin="0,8,0,8"/>
+        <TextBlock Text="Templates" FontWeight="SemiBold" Margin="0,0,0,6"/>
+
+        <WrapPanel>
+            <!-- Ditch template -->
+            <Button Margin="0,0,6,6" Padding="6,6"
+                    ToolTip="Ditch template: click to stamp pattern"
+                    Command="{Binding Map.DitchTemplateCommand}">
+                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                    <Image Source="/Assets/Icons/ditch.ico" Width="24" Height="24" Stretch="Uniform"/>
+                    <TextBlock Text="Ditch" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                </StackPanel>
+            </Button>
+        </WrapPanel>
+
+        <Separator Margin="0,8,0,8"/>
+
+        <!-- Global -->
+        <TextBlock Text="Global" FontWeight="SemiBold" Margin="0,0,0,6"/>
+        <WrapPanel>
+            <!-- Leave as-is unless you moved this command onto Map -->
+            <Button Margin="0,0,6,6" Padding="6,6"
+                    ToolTip="Randomise all heights to a natural-looking terrain"
+                    Command="{Binding RandomizeHeightsCommand}">
+                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                    <Image Source="/Assets/Icons/randomizeterrain.ico" Width="24" Height="24" Stretch="Uniform"/>
+                    <TextBlock Text="Randomise" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+                </StackPanel>
+            </Button>
+        </WrapPanel>
+
+        <Separator Margin="0,6,0,6"/>
+
+        <TextBlock Text="Click in the map to apply. Ctrl+Wheel zooms. Ctrl+0 resets."
+                   Opacity="0.7" TextWrapping="Wrap"/>
+    </StackPanel>
+</UserControl>
