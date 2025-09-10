@@ -1,0 +1,140 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>UrbanChaosMapEditor</RootNamespace>
+    <AssemblyName>UrbanChaosMapEditor</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+	<ApplicationIcon>Assets\Icons\app.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="Assets\Defaults\default.iam" />
+    <None Remove="Assets\Defaults\default.lgt" />
+    <None Remove="Assets\Icons\add.ico" />
+    <None Remove="Assets\Icons\clearrecent.ico" />
+    <None Remove="Assets\Icons\copyobject.ico" />
+    <None Remove="Assets\Icons\delete.ico" />
+    <None Remove="Assets\Icons\ditch.ico" />
+    <None Remove="Assets\Icons\editlight.ico" />
+    <None Remove="Assets\Icons\exit.ico" />
+    <None Remove="Assets\Icons\flatten.ico" />
+    <None Remove="Assets\Icons\level.ico" />
+    <None Remove="Assets\Icons\load.ico" />
+    <None Remove="Assets\Icons\lower.ico" />
+    <None Remove="Assets\Icons\maplightproperties.ico" />
+    <None Remove="Assets\Icons\new.ico" />
+    <None Remove="Assets\Icons\objectproperties.ico" />
+    <None Remove="Assets\Icons\raise.ico" />
+    <None Remove="Assets\Icons\randomizeterrain.ico" />
+    <None Remove="Assets\Icons\recent.ico" />
+    <None Remove="Assets\Icons\resetzoom.ico" />
+    <None Remove="Assets\Icons\save.ico" />
+    <None Remove="Assets\Icons\saveas.ico" />
+    <None Remove="Assets\Icons\showgrid.ico" />
+    <None Remove="Assets\Icons\showheights.ico" />
+    <None Remove="Assets\Icons\showlights.ico" />
+    <None Remove="Assets\Icons\showmapwho.ico" />
+    <None Remove="Assets\Icons\showprimheight.ico" />
+    <None Remove="Assets\Icons\showtextures.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Assets\Images\" />
+    <Folder Include="Themes\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\Defaults\default.iam" />
+    <Resource Include="Assets\Defaults\default.lgt">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\Icons\add.ico">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\Icons\app.ico">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\Icons\clearrecent.ico" />
+    <Resource Include="Assets\Icons\copyobject.ico">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\Icons\delete.ico">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\Icons\ditch.ico">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\Icons\editlight.ico">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\Icons\exit.ico">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\Icons\flatten.ico">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\Icons\level.ico">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\Icons\load.ico" />
+    <Resource Include="Assets\Icons\lower.ico">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\Icons\maplightproperties.ico">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\Icons\new.ico" />
+    <Resource Include="Assets\Icons\objectproperties.ico">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\Icons\pasteobject.ico">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\Icons\raise.ico">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\Icons\randomizeterrain.ico">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\Icons\recent.ico" />
+    <Resource Include="Assets\Icons\resetzoom.ico" />
+    <Resource Include="Assets\Icons\save.ico">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\Icons\saveas.ico">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\Icons\showgrid.ico">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\Icons\showheights.ico">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\Icons\showlights.ico">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\Icons\showmapwho.ico">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\Icons\showprimheight.ico">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\Icons\showtextures.ico">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\Icons\showobjects.ico">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\Textures\**\*.png">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\Images\**\*.png">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
+  </ItemGroup>
+
+</Project>

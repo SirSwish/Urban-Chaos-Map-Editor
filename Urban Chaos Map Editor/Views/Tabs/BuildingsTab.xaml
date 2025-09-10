@@ -1,0 +1,266 @@
+<UserControl x:Class="UrbanChaosMapEditor.Views.Tabs.BuildingsTab"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:UrbanChaosMapEditor.ViewModels">
+
+    <!-- Remove this if the parent sets DataContext -->
+    <UserControl.DataContext>
+        <vm:BuildingsTabViewModel/>
+    </UserControl.DataContext>
+
+    <UserControl.Resources>
+        <!-- Fluorescent overlay colours -->
+        <SolidColorBrush x:Key="FacetWallBrush" Color="#00FF00"/>
+        <SolidColorBrush x:Key="FacetFenceBrush" Color="#FFFF00"/>
+        <SolidColorBrush x:Key="FacetCableBrush" Color="#FF0000"/>
+        <SolidColorBrush x:Key="FacetDoorBrush"  Color="#A020F0"/>
+        <SolidColorBrush x:Key="FacetLadderBrush" Color="#FFA500"/>
+        <SolidColorBrush x:Key="FacetOtherBrush" Color="#7FD4FF"/>
+
+        <Style x:Key="LegendPill" TargetType="Border">
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="2,0"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+        </Style>
+
+        <vm:FacetTypeToBrushConverter x:Key="FacetTypeToBrush"/>
+    </UserControl.Resources>
+
+    <DockPanel>
+        <!-- Toolbar -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8,6" VerticalAlignment="Center">
+            <!-- Watermarked search box -->
+            <Grid Width="180" Margin="0,0,8,0" ToolTip="Search (building id, storey id, facet id, type)">
+                <TextBox x:Name="SearchBox"
+                         Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}"/>
+                <TextBlock IsHitTestVisible="False" Margin="6,2,0,0" Foreground="#66000000" Text="Search">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Text, ElementName=SearchBox}" Value="">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </Grid>
+
+            <ComboBox Width="160" Margin="0,0,8,0"
+                      ItemsSource="{Binding FacetTypeOptions}"
+                      SelectedItem="{Binding SelectedFacetType}"
+                      ToolTip="Filter by facet type"/>
+
+            <Button Content="Refresh" Command="{Binding RefreshCommand}" />
+
+            <!-- Legend -->
+            <StackPanel Orientation="Horizontal" Margin="16,0,0,0" VerticalAlignment="Center">
+                <Border Style="{StaticResource LegendPill}" Background="{StaticResource FacetWallBrush}">
+                    <TextBlock Text="Walls" Margin="6,0" FontWeight="SemiBold"/>
+                </Border>
+                <Border Style="{StaticResource LegendPill}" Background="{StaticResource FacetFenceBrush}">
+                    <TextBlock Text="Fences" Margin="6,0" FontWeight="SemiBold"/>
+                </Border>
+                <Border Style="{StaticResource LegendPill}" Background="{StaticResource FacetCableBrush}">
+                    <TextBlock Text="Cables" Margin="6,0" FontWeight="SemiBold"/>
+                </Border>
+                <Border Style="{StaticResource LegendPill}" Background="{StaticResource FacetDoorBrush}">
+                    <TextBlock Text="Doors" Margin="6,0" FontWeight="SemiBold"/>
+                </Border>
+                <Border Style="{StaticResource LegendPill}" Background="{StaticResource FacetLadderBrush}">
+                    <TextBlock Text="Ladders" Margin="6,0" FontWeight="SemiBold"/>
+                </Border>
+            </StackPanel>
+        </StackPanel>
+
+        <!-- Columnar stack: Tree (top) | Splitter | Details (bottom) -->
+        <Grid Margin="8">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="6" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- TreeView (scrollable) -->
+            <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
+                <TreeView ItemsSource="{Binding Buildings}"
+                          SelectedItemChanged="TreeView_OnSelectedItemChanged">
+                    <TreeView.ItemTemplate>
+                        <!-- Building -->
+                        <HierarchicalDataTemplate DataType="{x:Type vm:BuildingVM}" ItemsSource="{Binding Storeys}">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="B#" Foreground="#888"/>
+                                <TextBlock Text="{Binding DisplayName}" FontWeight="Bold" Margin="2,0"/>
+                                <TextBlock Text="  (" />
+                                <TextBlock Text="{Binding FacetCount}" />
+                                <TextBlock Text=" facets)" />
+                            </StackPanel>
+
+                            <!-- Storeys -->
+                            <HierarchicalDataTemplate.ItemTemplate>
+                                <HierarchicalDataTemplate DataType="{x:Type vm:StoreyVM}" ItemsSource="{Binding Groups}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="Storey " />
+                                        <TextBlock Text="{Binding StoreyId}" FontWeight="Bold" Margin="2,0"/>
+                                        <TextBlock Text="  (" />
+                                        <TextBlock Text="{Binding UsageCount}" />
+                                        <TextBlock Text=" facets)" />
+                                    </StackPanel>
+
+                                    <!-- Type groups -->
+                                    <HierarchicalDataTemplate.ItemTemplate>
+                                        <HierarchicalDataTemplate DataType="{x:Type vm:FacetTypeGroupVM}" ItemsSource="{Binding Facets}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <Ellipse Width="9" Height="9" Margin="0,0,6,0">
+                                                    <Ellipse.Fill>
+                                                        <MultiBinding Converter="{StaticResource FacetTypeToBrush}">
+                                                            <Binding Path="Type"/>
+                                                            <Binding RelativeSource="{RelativeSource AncestorType=UserControl}" Path="Resources[FacetWallBrush]"/>
+                                                            <Binding RelativeSource="{RelativeSource AncestorType=UserControl}" Path="Resources[FacetFenceBrush]"/>
+                                                            <Binding RelativeSource="{RelativeSource AncestorType=UserControl}" Path="Resources[FacetCableBrush]"/>
+                                                            <Binding RelativeSource="{RelativeSource AncestorType=UserControl}" Path="Resources[FacetDoorBrush]"/>
+                                                            <Binding RelativeSource="{RelativeSource AncestorType=UserControl}" Path="Resources[FacetLadderBrush]"/>
+                                                            <Binding RelativeSource="{RelativeSource AncestorType=UserControl}" Path="Resources[FacetOtherBrush]"/>
+                                                        </MultiBinding>
+                                                    </Ellipse.Fill>
+                                                </Ellipse>
+                                                <TextBlock Text="{Binding TypeName}" FontWeight="SemiBold"/>
+                                                <TextBlock Text="  (" />
+                                                <TextBlock Text="{Binding Count}" />
+                                                <TextBlock Text=")" />
+                                            </StackPanel>
+
+                                            <!-- Facets -->
+                                            <!-- Facets -->
+                                            <HierarchicalDataTemplate.ItemTemplate>
+                                                <DataTemplate DataType="{x:Type vm:FacetVM}">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="#" Foreground="#888"/>
+                                                        <TextBlock Text="{Binding FacetId1}" FontWeight="Bold" Margin="2,0"/>
+                                                        <TextBlock Text="  " />
+                                                        <TextBlock Text="{Binding Coords}" />
+                                                        <TextBlock Text="  type=" />
+                                                        <TextBlock Text="{Binding Type}" />
+                                                        <TextBlock Text="  style=" />
+                                                        <TextBlock Text="{Binding StyleDisplay}" />
+                                                        <!-- NEW -->
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </HierarchicalDataTemplate.ItemTemplate>
+                                        </HierarchicalDataTemplate>
+                                    </HierarchicalDataTemplate.ItemTemplate>
+                                </HierarchicalDataTemplate>
+                            </HierarchicalDataTemplate.ItemTemplate>
+                        </HierarchicalDataTemplate>
+                    </TreeView.ItemTemplate>
+                </TreeView>
+            </ScrollViewer>
+
+            <!-- Splitter -->
+            <GridSplitter Grid.Row="1"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Center"
+                          Height="6"
+                          Background="#22000000"
+                          ShowsPreview="True"/>
+
+            <!-- Details panel (scrollable) -->
+            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="0,6,0,0">
+                    <!-- Selection card (unchanged) -->
+                    <Border Padding="10" BorderBrush="#333" BorderThickness="1" CornerRadius="6">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="8"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Text="Selection" FontWeight="Bold" FontSize="13"/>
+                            <StackPanel Grid.Row="2" Orientation="Horizontal">
+                                <TextBlock Text="Facet ID: " FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding SelectedFacet.FacetId1}"/>
+                                <TextBlock Text="   Type: " FontWeight="SemiBold" Margin="10,0,0,0"/>
+                                <TextBlock Text="{Binding SelectedFacet.Type}"/>
+                                <TextBlock Text="   Style: " FontWeight="SemiBold" Margin="10,0,0,0"/>
+                                <TextBlock Text="{Binding SelectedFacet.StyleIndex}"/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,6,0,0">
+                                <TextBlock Text="Coords: " FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding SelectedFacet.Coords}"/>
+                                <TextBlock Text="   Height: " FontWeight="SemiBold" Margin="10,0,0,0"/>
+                                <TextBlock>
+                        <Run Text="{Binding SelectedFacet.Height}"/><Run Text="/"/><Run Text="{Binding SelectedFacet.FHeight}"/>
+                                </TextBlock>
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,6,0,0">
+                                <TextBlock Text="Flags: " FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding SelectedFacet.Flags}"/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="5" Orientation="Horizontal" Margin="0,6,0,0">
+                                <TextBlock Text="Storey: " FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding SelectedStoreyId}"/>
+                                <TextBlock Text="   Building: " FontWeight="SemiBold" Margin="10,0,0,0"/>
+                                <TextBlock Text="{Binding SelectedBuildingId}"/>
+                            </StackPanel>
+
+                            <TextBlock Grid.Row="6" Opacity="0.6"
+                           Text="(Display-only preview. Editing to come.)"
+                           VerticalAlignment="Bottom"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- NEW: Global building data card -->
+                    <Border Padding="10" BorderBrush="#333" BorderThickness="1" CornerRadius="6" Margin="0,8,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Global building data" FontWeight="Bold" FontSize="13" Margin="0,0,0,6"/>
+
+                            <!-- Styles -->
+                            <Expander Header="{Binding StylesCount, StringFormat=Styles ({0})}" IsExpanded="False">
+                                <Border BorderBrush="#222" BorderThickness="1" CornerRadius="4" Padding="6" Margin="0,6,0,0">
+                                    <ItemsControl ItemsSource="{Binding Styles}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Display}" FontFamily="Consolas"/>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </Border>
+                            </Expander>
+
+                            <!-- Paint Mem -->
+                            <Expander Header="{Binding PaintMemCount, StringFormat=Paint mem bytes ({0})}" IsExpanded="False" Margin="0,6,0,0">
+                                <Border BorderBrush="#222" BorderThickness="1" CornerRadius="4" Padding="6" Margin="0,6,0,0">
+                                    <!-- FIX: Border can have only one child, so wrap content in a panel -->
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding PaintMemPreview}" TextWrapping="Wrap" FontFamily="Consolas"/>
+                                        <TextBlock Text="(Showing first 128 bytes)" Opacity="0.6" Margin="0,4,0,0"/>
+                                    </StackPanel>
+                                </Border>
+                            </Expander>
+
+                            <!-- DStoreys -->
+                            <Expander Header="{Binding DStoreysTotal, StringFormat=DStoreys ({0})}" IsExpanded="False" Margin="0,6,0,0">
+                                <StackPanel Margin="0,6,0,0">
+                                    <TextBlock>
+                            <Run Text="Next (raw next_dstorey): "/>
+                            <Run Text="{Binding DStoreysNext, Mode=OneWay}"/>
+                                    </TextBlock>
+                                    <TextBlock Opacity="0.7" Text="(Raw metadata only for now; struct size to be confirmed)"/>
+                                </StackPanel>
+                            </Expander>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </DockPanel>
+</UserControl>

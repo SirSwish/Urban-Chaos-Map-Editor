@@ -1,0 +1,71 @@
+<UserControl x:Class="UrbanChaosMapEditor.Views.MapView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ovl="clr-namespace:UrbanChaosMapEditor.Views.Overlays"
+             Focusable="True"
+             PreviewKeyDown="OnPreviewKeyDown">
+    <Grid>
+        <ScrollViewer x:Name="Scroller"
+                      HorizontalScrollBarVisibility="Auto"
+                      VerticalScrollBarVisibility="Auto"
+                      CanContentScroll="False">
+            <Grid RenderOptions.BitmapScalingMode="NearestNeighbor">
+                <Grid.LayoutTransform>
+                    <ScaleTransform ScaleX="{Binding Zoom}" ScaleY="{Binding Zoom}"/>
+                </Grid.LayoutTransform>
+
+                <Grid x:Name="Surface"
+                      Width="8192" Height="8192"
+                      Background="Transparent">
+
+                    <!-- Existing layers -->
+                    <ovl:TexturesLayer
+                        Width="8192" Height="8192"
+                        Visibility="{Binding ShowTextures, Converter={StaticResource BoolToVis}}"
+                        Panel.ZIndex="0"
+                        IsHitTestVisible="False"/>
+                    <!-- NEW: Gridlines (black 64px) -->
+                    <ovl:GridLinesLayer
+                        Width="8192" Height="8192"
+                        Visibility="{Binding ShowGridLines, Converter={StaticResource BoolToVis}}"
+                        Panel.ZIndex="1"
+                        IsHitTestVisible="False"/>
+
+                    <!-- NEW: MapWho grid (red 256px) -->
+                    <ovl:MapWhoLayer
+                        Width="8192" Height="8192"
+                        Visibility="{Binding ShowMapWho, Converter={StaticResource BoolToVis}}"
+                        Panel.ZIndex="2"
+                        IsHitTestVisible="False"/>
+                    <ovl:HeightsLayer
+                            x:Name="HeightsOverlay"
+                            Width="8192" Height="8192"
+                            Visibility="{Binding ShowHeights, Converter={StaticResource BoolToVis}}"
+                            Panel.ZIndex="3"
+                            IsHitTestVisible="False"/>
+                    <!-- inside your overlay grid/panel (same host as other layers) -->
+                    <ovl:BuildingLayer x:Name="BuildingLayer"
+                                            Visibility="Visible"/>
+                    <!-- NEW: Prims overlay -->
+                    <ovl:PrimsLayer
+                            x:Name="PrimsOverlay"
+                            Width="8192" Height="8192"
+                            Visibility="{Binding ShowObjects, Converter={StaticResource BoolToVis}}"
+                            Panel.ZIndex="4"
+                            IsHitTestVisible="True" />
+                    <ovl:LightLayer
+                            Visibility="{Binding ShowLights, Converter={StaticResource BoolToVis}}"
+                            DataContext="{Binding}" />
+                    <!-- Ghost preview for texture painting -->
+                    <ovl:GhostTexturePreviewLayer x:Name="GhostLayer"
+                            Width="8192" Height="8192"
+                            Panel.ZIndex="99"
+                            IsHitTestVisible="False"/>
+
+
+
+                </Grid>
+            </Grid>
+        </ScrollViewer>
+    </Grid>
+</UserControl>
