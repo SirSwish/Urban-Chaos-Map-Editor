@@ -264,7 +264,7 @@ namespace UrbanChaosMapEditor.Views
                     {
                         ForEachVertexInBrush(vx, vy, vm.BrushSize, (tx, ty) =>
                         {
-                            if (_heights.ReadHeight(tx, ty) != 0) _heights.WriteHeight(tx, ty, 0);
+                            if (_heights.ReadHeight(tx, ty) != 0) _heights.WriteHeight(tx, ty, (sbyte)0);
                         });
 
                         HeightsOverlay?.InvalidateVisual();
@@ -634,14 +634,21 @@ namespace UrbanChaosMapEditor.Views
 
         private void ForEachVertexInBrush(int vx, int vy, int brushSize, Action<int, int> applyByTile)
         {
-            // vx,vy are vertex indices (1..128). Tile indices are (vx-1, vy-1).
+            // vx,vy are vertex indices (1..128). The tile directly "under" this vertex is (vx-1, vy-1).
+            // Center an N×N brush around that tile.
             int size = Math.Clamp(brushSize, 1, 10);
+            int half = size / 2; // floor
+
+            int startTx = (vx - 1) - half;
+            int startTy = (vy - 1) - half;
+
             for (int dy = 0; dy < size; dy++)
             {
                 for (int dx = 0; dx < size; dx++)
                 {
-                    int tx = (vx - 1) + dx;
-                    int ty = (vy - 1) + dy;
+                    int tx = startTx + dx;
+                    int ty = startTy + dy;
+
                     if (tx >= 0 && tx < MapConstants.TilesPerSide &&
                         ty >= 0 && ty < MapConstants.TilesPerSide)
                     {

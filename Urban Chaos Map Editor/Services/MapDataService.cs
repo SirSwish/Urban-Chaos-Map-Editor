@@ -214,36 +214,52 @@ namespace UrbanChaosMapEditor.Services
 
         public void ComputeAndCacheBuildingRegion()
         {
-            if (!IsLoaded) { _buildingRegion = (-1, 0); return; }
+            // Default: no region
+            _buildingRegion = (-1, 0);
 
-            var bytes = GetBytesCopy(); // single read; we cache only positions, not the array
-            if (bytes.Length < 12) { _buildingRegion = (-1, 0); return; }
+            if (!IsLoaded) return;
 
+            var bytes = GetBytesCopy();
+            if (bytes == null || bytes.Length < 12) return;
+
+            // Header fields at file start (as before)
             int saveType = BitConverter.ToInt32(bytes, 0);
             int objectBytesFromHeader = BitConverter.ToInt32(bytes, 4);
             int sizeAdjustment = (saveType >= 25) ? 2000 : 0;
 
-            // Where the object section begins (offset of NumObjects int32) — V1 formula.
+            // Where the object section begins (offset of NumObjects int32) — your V1 formula
             int objectOffset = bytes.Length - 12 - sizeAdjustment - objectBytesFromHeader + 8;
 
-            const int tileBytes = 128 * 128 * 6;
-            int buildingStart = 8 + tileBytes;
-            int buildingEnd = objectOffset;
-            int buildingLen = buildingEnd - buildingStart;
-
-            if (buildingStart < 0 || buildingEnd > bytes.Length || buildingLen <= 0)
+            // -------- Strict finder (preferred) --------
+            if (objectOffset > 0 &&
+                objectOffset <= bytes.Length &&
+                BuildingsAccessor.TryFindRegion(bytes, objectOffset, out int headerOff, out int regionLen))
             {
-                Debug.WriteLine($"[Buildings] ComputeAndCacheBuildingRegion: invalid " +
-                                $"start=0x{buildingStart:X} end=0x{buildingEnd:X} len={buildingLen} file={bytes.Length}");
-                _buildingRegion = (-1, 0);
+                _buildingRegion = (headerOff, regionLen);
+                System.Diagnostics.Debug.WriteLine(
+                    $"[Buildings] Region (strict) cached: start=0x{headerOff:X} len={regionLen} (end=0x{headerOff + regionLen:X}) saveType={saveType}");
                 return;
             }
 
-            _buildingRegion = (buildingStart, buildingLen);
+            // -------- Fallback to V1 heuristic --------
+            const int tileBytes = 128 * 128 * 6;
+            int buildingStart = 8 + tileBytes;
+            int buildingEnd = Math.Clamp(objectOffset, 0, bytes.Length);
+            int buildingLen = buildingEnd - buildingStart;
 
-            Debug.WriteLine($"[Buildings] Region cached: start=0x{buildingStart:X} len={buildingLen} " +
-                            $"(end=0x{buildingEnd:X}) saveType={saveType} objBytes(hdr)={objectBytesFromHeader} adj={sizeAdjustment}");
+            if (buildingStart >= 0 && buildingEnd <= bytes.Length && buildingLen > 0)
+            {
+                _buildingRegion = (buildingStart, buildingLen);
+                System.Diagnostics.Debug.WriteLine(
+                    $"[Buildings] Region (fallback) cached: start=0x{buildingStart:X} len={buildingLen} (end=0x{buildingEnd:X}) saveType={saveType}");
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[Buildings] Failed to determine building region. objectOff=0x{objectOffset:X} fileLen={bytes.Length}");
+            }
         }
+
 
         public bool TryGetBuildingRegion(out int start, out int length)
         {

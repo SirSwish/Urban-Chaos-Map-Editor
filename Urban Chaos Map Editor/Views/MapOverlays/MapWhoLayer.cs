@@ -3,7 +3,7 @@ using System.Windows;
 using System.Windows.Media;
 using UrbanChaosMapEditor.Models;
 
-namespace UrbanChaosMapEditor.Views.Overlays
+namespace UrbanChaosMapEditor.Views.MapOverlays
 {
     /// <summary>Draws 4x4-tile (256px) MapWho cell grid with thicker red lines + per-cell labels.</summary>
     public sealed class MapWhoLayer : FrameworkElement

@@ -1,8 +1,9 @@
-﻿using System.Windows;
+﻿// Views/EditorTabs/BuildingsTab.xaml.cs
+using System.Windows;
 using System.Windows.Controls;
 using UrbanChaosMapEditor.ViewModels;
 
-namespace UrbanChaosMapEditor.Views.Tabs
+namespace UrbanChaosMapEditor.Views.EditorTabs
 {
     public partial class BuildingsTab : UserControl
     {
@@ -13,9 +14,6 @@ namespace UrbanChaosMapEditor.Views.Tabs
         }
 
         private void TreeView_OnSelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
-        {
-            if (DataContext is BuildingsTabViewModel vm)
-                vm.HandleTreeSelection(e.NewValue);
-        }
+            => (DataContext as BuildingsTabViewModel)?.HandleTreeSelection(e.NewValue);
     }
 }

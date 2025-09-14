@@ -25,7 +25,13 @@ namespace UrbanChaosMapEditor.ViewModels
         {
             Buildings.Clear();
 
-            var arrays = BuildingParser.TryParseFromService();
+            var arrays = new BuildingsAccessor(MapDataService.Instance).ReadSnapshot();
+            // guard if needed:
+            if (arrays.Facets.Length == 0 && arrays.Buildings.Length == 0)
+            {
+                // nothing to show
+                return;
+            }
             if (arrays is null) return;
 
             // Quick index of facets per building

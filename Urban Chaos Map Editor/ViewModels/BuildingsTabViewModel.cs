@@ -63,7 +63,14 @@ namespace UrbanChaosMapEditor.ViewModels
             SelectedBuildingId = 0;
             SelectedStoreyId = 0;
 
-            var arrays = BuildingParser.TryParseFromService();
+            var arrays = new BuildingsAccessor(MapDataService.Instance).ReadSnapshot();
+            // guard if needed:
+            if (arrays.Facets.Length == 0 && arrays.Buildings.Length == 0)
+            {
+                // nothing to show
+                return;
+            }
+
             if (arrays is null)
             {
                 Debug.WriteLine("[BuildingsTabVM] BuildingParser.TryParseFromService returned null.");
@@ -190,43 +197,48 @@ namespace UrbanChaosMapEditor.ViewModels
 
         public void HandleTreeSelection(object? selection)
         {
+            var shell = System.Windows.Application.Current.MainWindow?.DataContext as MainWindowViewModel;
+            var map = shell?.Map;
+            if (map is null) return;
+
             switch (selection)
             {
                 case FacetVM f:
                     SelectedFacet = f;
-                    SelectedBuildingId = f.BuildingId;
-                    SelectedStoreyId = f.StoreyId;
-                    // <-- facet-only highlight
-                    BuildingsSelectionBus.Instance.SelectFacet(f.BuildingId, f.StoreyId, f.FacetId1);
+                    map.SelectedBuildingId = f.BuildingId;
+                    map.SelectedStoreyId = f.StoreyId;
+                    map.SelectedFacetId = f.FacetId1;   // facet-only highlight
                     break;
 
                 case FacetTypeGroupVM g when g.Facets.Count > 0:
                     SelectedFacet = g.Facets[0];
-                    SelectedBuildingId = SelectedFacet.BuildingId;
-                    SelectedStoreyId = SelectedFacet.StoreyId;
-                    // highlight entire storey (NOT a single facet)
-                    BuildingsSelectionBus.Instance.SelectStorey(SelectedBuildingId, SelectedStoreyId);
+                    map.SelectedBuildingId = SelectedFacet.BuildingId;
+                    map.SelectedStoreyId = SelectedFacet.StoreyId;
+                    map.SelectedFacetId = null;         // whole storey, not a single facet
                     break;
 
                 case StoreyVM s:
                     SelectedFacet = s.Groups.SelectMany(x => x.Facets).FirstOrDefault();
-                    SelectedBuildingId = SelectedFacet?.BuildingId ?? 0;
-                    SelectedStoreyId = s.StoreyId;
-                    BuildingsSelectionBus.Instance.SelectStorey(SelectedBuildingId, SelectedStoreyId);
+                    map.SelectedBuildingId = SelectedFacet?.BuildingId ?? 0;
+                    map.SelectedStoreyId = s.StoreyId;
+                    map.SelectedFacetId = null;         // whole storey highlight
                     break;
 
                 case BuildingVM b:
-                    SelectedFacet = b.Storeys.SelectMany(st => st.Groups).SelectMany(x => x.Facets).FirstOrDefault();
-                    SelectedBuildingId = b.Id;
-                    SelectedStoreyId = SelectedFacet?.StoreyId ?? 0;
-                    BuildingsSelectionBus.Instance.SelectBuilding(b.Id);
+                    SelectedFacet = b.Storeys
+                                     .SelectMany(st => st.Groups)
+                                     .SelectMany(x => x.Facets)
+                                     .FirstOrDefault();
+                    map.SelectedBuildingId = b.Id;
+                    map.SelectedStoreyId = SelectedFacet?.StoreyId ?? 0;
+                    map.SelectedFacetId = null;         // whole building highlight (storey if available)
                     break;
 
                 default:
                     SelectedFacet = null;
-                    SelectedBuildingId = 0;
-                    SelectedStoreyId = 0;
-                    BuildingsSelectionBus.Instance.Clear();
+                    map.SelectedBuildingId = 0;
+                    map.SelectedStoreyId = null;
+                    map.SelectedFacetId = null;
                     break;
             }
         }

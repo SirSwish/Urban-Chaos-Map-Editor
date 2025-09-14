@@ -2,7 +2,7 @@
 using System.Windows.Media;
 using UrbanChaosMapEditor.Models;
 
-namespace UrbanChaosMapEditor.Views.Overlays
+namespace UrbanChaosMapEditor.Views.MapOverlays
 {
     /// <summary>Draws 64x64 tile grid (black) over the map.</summary>
     public sealed class GridLinesLayer : FrameworkElement

@@ -79,7 +79,7 @@ namespace UrbanChaosMapEditor.ViewModels
     }
 
 
-    public sealed class MapViewModel : INotifyPropertyChanged
+    public sealed partial class MapViewModel : INotifyPropertyChanged
     {
 
         // === Map Modification Commands ===
@@ -116,7 +116,7 @@ namespace UrbanChaosMapEditor.ViewModels
         private bool _showTextures = true;
         public bool ShowTextures { get => _showTextures; set { if (_showTextures != value) { _showTextures = value; OnPropertyChanged(); } } }
 
-        private bool _showHeights = true;
+        private bool _showHeights = false;
         public bool ShowHeights { get => _showHeights; set { if (_showHeights != value) { _showHeights = value; OnPropertyChanged(); } } }
 
         private bool _showBuildings = true;
@@ -128,7 +128,7 @@ namespace UrbanChaosMapEditor.ViewModels
         private bool _showGridLines = true;
         public bool ShowGridLines { get => _showGridLines; set { if (_showGridLines != value) { _showGridLines = value; OnPropertyChanged(); } } }
 
-        private bool _showMapWho = true;
+        private bool _showMapWho = false;
         public bool ShowMapWho { get => _showMapWho; set { if (_showMapWho != value) { _showMapWho = value; OnPropertyChanged(); } } }
 
         // ===== Cursor (pixels + tiles) =====
@@ -344,6 +344,26 @@ namespace UrbanChaosMapEditor.ViewModels
         {
             get => _selectedLightIndex;
             set { if (_selectedLightIndex != value) { _selectedLightIndex = value; OnPropertyChanged(); } }
+        }
+
+        private int _selectedBuildingId;
+        public int SelectedBuildingId
+        {
+            get => _selectedBuildingId;
+            set { if (_selectedBuildingId != value) { _selectedBuildingId = value; OnPropertyChanged(); } }
+        }
+
+        private int? _selectedStoreyId;
+        public int? SelectedStoreyId
+        {
+            get => _selectedStoreyId;
+            set { if (_selectedStoreyId != value) { _selectedStoreyId = value; OnPropertyChanged(); } }
+        }
+        private int? _selectedFacetId;  // null = don’t facet-highlight
+        public int? SelectedFacetId
+        {
+            get => _selectedFacetId;
+            set { if (_selectedFacetId != value) { _selectedFacetId = value; OnPropertyChanged(); } }
         }
 
         // ===== Texture palettes shown in the Textures tab =====

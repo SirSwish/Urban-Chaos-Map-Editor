@@ -18,6 +18,8 @@ namespace UrbanChaosMapEditor.Views
         private bool _heightHotkeyLatched;
         private PrimListItem? _copiedPrim;
         private LightEntry? _copiedLight;
+        private enum ClipboardKind { None, Prim, Light }
+        private ClipboardKind _clipboardKind = ClipboardKind.None;
         private void DeleteLight_Click(object sender, RoutedEventArgs e) => DeleteSelectedLight();
         private void CopyLight_Click(object sender, RoutedEventArgs e) => CopySelectedLight();
         private void PasteLight_Click(object sender, RoutedEventArgs e) => PasteLightAtCursor();
@@ -345,15 +347,15 @@ namespace UrbanChaosMapEditor.Views
 
         private void CopySelectedPrim()
         {
-            if (DataContext is not MainWindowViewModel shell) return;
-            var sel = shell.Map.SelectedPrim;
-            if (sel == null)
+            var shell = DataContext as MainWindowViewModel;
+            if (shell == null || shell.Map?.SelectedPrim is null)
             {
-                shell.StatusMessage = "Nothing to copy.";
+                if (shell != null) shell.StatusMessage = "No object selected to copy.";
                 return;
             }
 
-            // Snapshot the fields we want to clone
+            var sel = shell.Map.SelectedPrim;
+
             _copiedPrim = new PrimListItem
             {
                 Index = sel.Index,
@@ -371,6 +373,9 @@ namespace UrbanChaosMapEditor.Views
                 PixelX = sel.PixelX,
                 PixelZ = sel.PixelZ
             };
+
+            // Last-copy-wins: clear light clipboard
+            _copiedLight = null;
 
             shell.StatusMessage = $"Copied “{sel.Name}” (#{sel.PrimNumber:000}).";
         }
@@ -433,39 +438,66 @@ namespace UrbanChaosMapEditor.Views
             if (Keyboard.FocusedElement is System.Windows.Controls.TextBox)
                 return;
 
+            // ==== Ctrl+ shortcuts ====
             if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
             {
+                // --- Copy (prefer prims over lights) ---
                 if (e.Key == Key.C)
                 {
-                    if (DataContext is MainWindowViewModel vm &&
-                        vm.Map.SelectedLightIndex >= 0)
+                    if (DataContext is not MainWindowViewModel shell || shell.Map == null)
+                    {
+                        e.Handled = true; // swallow so Ctrl+C doesn’t bubble
+                        return;
+                    }
+
+                    var map = shell.Map;
+
+                    if (map.SelectedPrim != null)
+                    {
+                        CopySelectedPrim();
+                    }
+                    else if (map.SelectedLightIndex >= 0)
                     {
                         CopySelectedLight();
                     }
                     else
                     {
-                        CopySelectedPrim(); // existing behavior
+                        shell.StatusMessage = "Nothing selected to copy.";
                     }
+
                     e.Handled = true;
                     return;
                 }
 
+                // --- Paste (prefer prim clipboard over light clipboard) ---
                 if (e.Key == Key.V)
                 {
-                    if (_copiedLight != null)
+                    if (DataContext is not MainWindowViewModel shell || shell.Map == null)
+                    {
+                        e.Handled = true; // nothing to paste into
+                        return;
+                    }
+
+                    // Prefer prim paste if we have one; otherwise paste light; otherwise message
+                    if (_copiedPrim != null)
+                    {
+                        PastePrimAtCursor();
+                    }
+                    else if (_copiedLight != null)
                     {
                         PasteLightAtCursor();
                     }
                     else
                     {
-                        PastePrimAtCursor(); // existing behavior
+                        shell.StatusMessage = "Clipboard is empty.";
                     }
+
                     e.Handled = true;
                     return;
                 }
             }
 
-            // Keep your Delete handling exactly as-is
+            // ==== Delete key ====
             if (e.Key == Key.Delete)
             {
                 if (DataContext is MainWindowViewModel vm && vm.Map.SelectedLightIndex >= 0)
@@ -484,13 +516,13 @@ namespace UrbanChaosMapEditor.Views
                 return;
             }
 
-            // SHIFT → open Height dialog once per press if a prim is selected
+            // ==== SHIFT → open Height dialog once per press if a prim is selected ====
             if ((e.Key == Key.LeftShift || e.Key == Key.RightShift) && !_heightHotkeyLatched)
             {
-                // don't pop while typing in a TextBox
+                // don’t pop while typing in a TextBox
                 if (Keyboard.FocusedElement is System.Windows.Controls.TextBox) return;
 
-                if (DataContext is MainWindowViewModel vm && vm.Map.SelectedPrim is { } sel)
+                if (DataContext is MainWindowViewModel vm && vm.Map != null && vm.Map.SelectedPrim is { } sel)
                 {
                     _heightHotkeyLatched = true;      // latch to avoid auto-repeat spam
                     OpenPrimHeightDialog(sel);        // opens the window once
@@ -498,6 +530,7 @@ namespace UrbanChaosMapEditor.Views
                 }
             }
         }
+
 
         private void MainWindow_PreviewKeyUp(object? sender, KeyEventArgs e)
         {
@@ -645,9 +678,12 @@ namespace UrbanChaosMapEditor.Views
         }
         private void CopySelectedLight()
         {
-            if (DataContext is not MainWindowViewModel shell) return;
-            var vm = shell.Map;
+            if (DataContext is not MainWindowViewModel shell || shell.Map == null)
+            {
+                return;
+            }
 
+            var vm = shell.Map;
             if (vm.SelectedLightIndex < 0)
             {
                 shell.StatusMessage = "No light selected to copy.";
@@ -664,7 +700,7 @@ namespace UrbanChaosMapEditor.Views
                     return;
                 }
 
-                // Snapshot template (we’ll override X/Z on paste)
+                // Snapshot template (override X/Z on paste)
                 _copiedLight = new LightEntry
                 {
                     Range = e.Range,
@@ -672,15 +708,18 @@ namespace UrbanChaosMapEditor.Views
                     Green = e.Green,
                     Blue = e.Blue,
                     Next = 0,
-                    Used = 1,           // template assumes “in use”; we’ll keep it that way on paste
+                    Used = 1,
                     Flags = e.Flags,
                     Padding = 0,
                     X = e.X,  // not used on paste
-                    Y = e.Y,  // height is kept
+                    Y = e.Y,  // keep height
                     Z = e.Z   // not used on paste
                 };
 
-                shell.StatusMessage = $"Copied light  (Y={e.Y}, Range={e.Range}, RGB=({e.Red},{e.Green},{e.Blue})).";
+                // Last-copy-wins: clear the other clipboard
+                _copiedPrim = null;
+
+                shell.StatusMessage = $"Copied light (Y={e.Y}, Range={e.Range}, RGB=({e.Red},{e.Green},{e.Blue})).";
             }
             catch (Exception ex)
             {

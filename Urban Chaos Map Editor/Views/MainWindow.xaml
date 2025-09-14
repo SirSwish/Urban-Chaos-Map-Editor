@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:conv="clr-namespace:UrbanChaosMapEditor.Converters"
         xmlns:views="clr-namespace:UrbanChaosMapEditor.Views"
-        xmlns:tabs="clr-namespace:UrbanChaosMapEditor.Views.Tabs"
+        xmlns:tabs="clr-namespace:UrbanChaosMapEditor.Views.EditorTabs"
         xmlns:models="clr-namespace:UrbanChaosMapEditor.Models"
         mc:Ignorable="d"
         Title="{Binding Title}"

@@ -4,7 +4,7 @@ using System.Windows.Media;
 using UrbanChaosMapEditor.Models;
 using UrbanChaosMapEditor.Services;
 
-namespace UrbanChaosMapEditor.Views.Overlays
+namespace UrbanChaosMapEditor.Views.MapOverlays
 {
     public sealed class TexturesLayer : FrameworkElement
     {

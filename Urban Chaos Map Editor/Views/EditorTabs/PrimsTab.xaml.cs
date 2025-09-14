@@ -6,7 +6,7 @@ using UrbanChaosMapEditor.Models;
 using UrbanChaosMapEditor.Services;
 using UrbanChaosMapEditor.ViewModels;
 
-namespace UrbanChaosMapEditor.Views.Tabs
+namespace UrbanChaosMapEditor.Views.EditorTabs
 {
     public partial class PrimsTab : UserControl
     {

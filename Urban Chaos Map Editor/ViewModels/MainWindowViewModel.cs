@@ -213,15 +213,15 @@ namespace UrbanChaosMapEditor.ViewModels
                         svc.ComputeAndCacheBuildingRegion();
 
                         // Optional: diagnostic — find the header by pattern/heuristic and log it ONLY
-                        int buildingHeaderOffset = BuildingOffsetFinder.FindHeader(snap, bytes);
-                        System.Diagnostics.Debug.WriteLine($"[Buildings] Header @ 0x{buildingHeaderOffset:X}");
-                        System.Diagnostics.Debug.WriteLine(
-                            $"[Buildings] saveType={snap.SaveType}, objSize={snap.ObjectSectionSize}, objOff=0x{snap.ObjectOffset:X}");
+                       // int buildingHeaderOffset = BuildingOffsetFinder.FindHeader(snap, bytes);
+                   //     System.Diagnostics.Debug.WriteLine($"[Buildings] Header @ 0x{buildingHeaderOffset:X}");
+                       // System.Diagnostics.Debug.WriteLine(
+                       //     $"[Buildings] saveType={snap.SaveType}, objSize={snap.ObjectSectionSize}, objOff=0x{snap.ObjectOffset:X}");
 
                         // Kick a repaint; the layer will pull the region from MapDataService
                         var view = System.Windows.Application.Current.MainWindow as Views.MainWindow;
                         var mapView = view?.MapViewControl;
-                        var bLayer = mapView?.FindName("BuildingLayer") as UrbanChaosMapEditor.Views.Overlays.BuildingLayer;
+                        var bLayer = mapView?.FindName("BuildingLayer") as UrbanChaosMapEditor.Views.MapOverlays.BuildingLayer;
                         bLayer?.InvalidateVisual();
                     }
                     catch (Exception ex)

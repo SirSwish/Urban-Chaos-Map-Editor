@@ -9,7 +9,7 @@ using UrbanChaosMapEditor.Models;
 using UrbanChaosMapEditor.Services;
 using UrbanChaosMapEditor.ViewModels;
 
-namespace UrbanChaosMapEditor.Views.Overlays
+namespace UrbanChaosMapEditor.Views.MapOverlays
 {
     public sealed class LightLayer : Canvas
     {

@@ -5,7 +5,7 @@ using System.Windows.Input;
 using UrbanChaosMapEditor.Models;
 using UrbanChaosMapEditor.ViewModels;
 
-namespace UrbanChaosMapEditor.Views.Tabs
+namespace UrbanChaosMapEditor.Views.EditorTabs
 {
     public partial class HeightsTab : UserControl
     {

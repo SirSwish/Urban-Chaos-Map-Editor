@@ -7,7 +7,7 @@ using UrbanChaosMapEditor.Services;
 using UrbanChaosMapEditor.ViewModels;
 using static UrbanChaosMapEditor.Services.TexturesAccessor;
 
-namespace UrbanChaosMapEditor.Views.Overlays
+namespace UrbanChaosMapEditor.Views.MapOverlays
 {
     public sealed class GhostTexturePreviewLayer : FrameworkElement
     {

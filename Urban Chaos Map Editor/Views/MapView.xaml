@@ -1,7 +1,7 @@
 <UserControl x:Class="UrbanChaosMapEditor.Views.MapView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:ovl="clr-namespace:UrbanChaosMapEditor.Views.Overlays"
+             xmlns:ovl="clr-namespace:UrbanChaosMapEditor.Views.MapOverlays"
              Focusable="True"
              PreviewKeyDown="OnPreviewKeyDown">
     <Grid>

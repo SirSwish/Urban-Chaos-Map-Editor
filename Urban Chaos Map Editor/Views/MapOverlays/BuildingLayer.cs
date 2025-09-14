@@ -1,5 +1,4 @@
-﻿using System;
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Media;
@@ -7,23 +6,22 @@ using UrbanChaosMapEditor.Models;
 using UrbanChaosMapEditor.Services;
 using UrbanChaosMapEditor.ViewModels;
 
-namespace UrbanChaosMapEditor.Views.Overlays
+namespace UrbanChaosMapEditor.Views.MapOverlays
 {
     /// <summary>
-    /// Visualises the building (“super map”) block:
-    /// draws each DFacet as a segment (X0,Z0)->(X1,Z1).
-    /// Reads/caches the map bytes ONCE per load (read-once, write-once).
-    /// Also highlights all facets for the selected Building (and optional Storey).
+    /// Visualises the building (“super map”) block by drawing each facet as a line (x0,z0)->(x1,z1).
+    /// Reads/caches the map bytes once per map load. Highlights current selection from MapViewModel:
+    /// building, optional storey, and optional single facet.
     /// </summary>
     public sealed class BuildingLayer : FrameworkElement
     {
-        // ---------- Fixed V1 layout (matches BuildingParser) ----------
+        // ---------- Fixed V1 layout (matches accessor/parser) ----------
         private const int HeaderSize = 48;
         private const int DBuildingSize = 24;
         private const int AfterBuildingsPad = 14;
         private const int DFacetSize = 26;
 
-        // Pens: thicker and color-coded
+        // Pens for normal pass
         private static readonly Pen PenWallGreen;
         private static readonly Pen PenCableRed;
         private static readonly Pen PenFenceYellow;
@@ -55,11 +53,7 @@ namespace UrbanChaosMapEditor.Views.Overlays
             PenDefault = Make(new Pen(fluoroGreen, 4.5));
         }
 
-        // ----- selection state from Buildings tab -----
-        private int _hlBuildingId;
-        private int? _hlStoreyId;
-
-        // Chalk-white glow stack (outer + inner + crisp edge)
+        // ----- glow stack for highlight -----
         private readonly Pen _glowPenWide;
         private readonly Pen _glowPenNarrow;
         private readonly Pen _edgePen;
@@ -72,7 +66,11 @@ namespace UrbanChaosMapEditor.Views.Overlays
         private int _totalBuildings = 0;
         private int _totalFacets = 0;
 
+        // ----- selection coming from the VM (DataContext) -----
         private MapViewModel? _vm;
+        private int _selBuildingId;
+        private int? _selStoreyId;
+        private int? _selFacetId; // null = highlight whole building/storey
 
         public BuildingLayer()
         {
@@ -80,7 +78,7 @@ namespace UrbanChaosMapEditor.Views.Overlays
             Height = MapConstants.MapPixels;
             IsHitTestVisible = false;
 
-            // Chalk white glow
+            // Chalk-white glow pens
             var glowOuter = new SolidColorBrush(Color.FromArgb(140, 255, 255, 255)); glowOuter.Freeze();
             var glowInner = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255)); glowInner.Freeze();
             var edgeBrush = new SolidColorBrush(Color.FromRgb(0xF5, 0xF5, 0xF5)); edgeBrush.Freeze();
@@ -96,13 +94,6 @@ namespace UrbanChaosMapEditor.Views.Overlays
             svc.MapBytesReset += (_, __) => { SeedFromService(); Dispatcher.Invoke(InvalidateVisual); };
             svc.MapCleared += (_, __) => { ClearCache(); Dispatcher.Invoke(InvalidateVisual); };
 
-            BuildingsSelectionBus.Instance.SelectionChanged += (_, e) =>
-            {
-                _hlBuildingId = e.BuildingId ?? 0;
-                _hlStoreyId = e.StoreyId;
-                Dispatcher.Invoke(InvalidateVisual);
-            };
-
             DataContextChanged += (_, __) => HookVm();
         }
 
@@ -110,12 +101,34 @@ namespace UrbanChaosMapEditor.Views.Overlays
         {
             if (_vm != null) _vm.PropertyChanged -= OnVmChanged;
             _vm = DataContext as MapViewModel;
-            if (_vm != null) _vm.PropertyChanged += OnVmChanged;
+            if (_vm != null)
+            {
+                _vm.PropertyChanged += OnVmChanged;
+
+                // seed selection from VM
+                _selBuildingId = _vm.SelectedBuildingId;
+                _selStoreyId = _vm.SelectedStoreyId;
+                _selFacetId = _vm.SelectedFacetId;
+            }
             InvalidateVisual();
         }
 
         private void OnVmChanged(object? s, PropertyChangedEventArgs e)
         {
+            if (_vm == null) return;
+
+            if (e.PropertyName == nameof(MapViewModel.SelectedBuildingId) ||
+                e.PropertyName == nameof(MapViewModel.SelectedStoreyId) ||
+                e.PropertyName == nameof(MapViewModel.SelectedFacetId))
+            {
+                _selBuildingId = _vm.SelectedBuildingId;
+                _selStoreyId = _vm.SelectedStoreyId;
+                _selFacetId = _vm.SelectedFacetId;
+                Dispatcher.Invoke(InvalidateVisual);
+                return;
+            }
+
+            // keep any other invalidations you had
             if (e.PropertyName == nameof(MapViewModel.Prims) ||
                 e.PropertyName == nameof(MapViewModel.SelectedPrim))
             {
@@ -136,7 +149,7 @@ namespace UrbanChaosMapEditor.Views.Overlays
             _totalFacets = 0;
         }
 
-        /// <summary>Seed once per load using the SAME math as BuildingParser.</summary>
+        /// <summary>Seed once per load using the same math as BuildingsAccessor/MapDataService region.</summary>
         private void SeedFromService()
         {
             ClearCache();
@@ -144,10 +157,7 @@ namespace UrbanChaosMapEditor.Views.Overlays
             var svc = MapDataService.Instance;
             if (!svc.IsLoaded) { Debug.WriteLine("[Buildings] Seed: no map loaded."); return; }
 
-            // This computes:
-            //   objectOffset = fileLen - 12 - adj - objectBytes + 8
-            //   buildingStart = 8 + (128*128*6)
-            //   buildingLen = objectOffset - buildingStart
+            // Use cached region (preferred, includes strict finder fallback)
             svc.ComputeAndCacheBuildingRegion();
             if (!svc.TryGetBuildingRegion(out _bStart, out _bLen))
             {
@@ -165,9 +175,9 @@ namespace UrbanChaosMapEditor.Views.Overlays
                 return;
             }
 
-            // These are the SAME fields BuildingParser reads:
-            ushort nextBuildings = BitConverter.ToUInt16(_cachedBytes, hdr + 2);
-            ushort nextFacets = BitConverter.ToUInt16(_cachedBytes, hdr + 4);
+            // Same counters used elsewhere
+            ushort nextBuildings = ReadU16(_cachedBytes, hdr + 2);
+            ushort nextFacets = ReadU16(_cachedBytes, hdr + 4);
             _totalBuildings = Math.Max(0, nextBuildings - 1);
             _totalFacets = Math.Max(0, nextFacets - 1);
 
@@ -218,14 +228,20 @@ namespace UrbanChaosMapEditor.Views.Overlays
                 drawn++;
             }
 
-            // ---------- Highlight pass (selected building / storey) ----------
-            if (_hlBuildingId > 0)
+            // ---------- Highlight pass (selected building/storey/facet from VM) ----------
+            if (_selBuildingId > 0)
             {
                 for (int i = 0; i < _totalFacets; i++)
                 {
                     int off = _facetsOffsetAbs + i * DFacetSize;
                     if (off + DFacetSize > _cachedBytes.Length) break;
-                    if (!FacetMatchesSelection(_cachedBytes, off)) continue;
+
+                    // Single facet selected? Facet ids are 1-based -> (i + 1)
+                    if (_selFacetId.HasValue && (i + 1) != _selFacetId.Value)
+                        continue;
+
+                    if (!FacetMatchesSelection(_cachedBytes, off, _selBuildingId, _selStoreyId))
+                        continue;
 
                     byte x0 = _cachedBytes[off + 2];
                     byte x1 = _cachedBytes[off + 3];
@@ -236,7 +252,7 @@ namespace UrbanChaosMapEditor.Views.Overlays
                     var p1 = new Point((128 - x0) * 64.0, (128 - z0) * 64.0);
                     var p2 = new Point((128 - x1) * 64.0, (128 - z1) * 64.0);
 
-                    // heavy glow stack
+                    // glow stack
                     dc.DrawLine(_glowPenWide, p1, p2);
                     dc.DrawLine(_glowPenNarrow, p1, p2);
                     dc.DrawLine(_edgePen, p1, p2);
@@ -246,17 +262,16 @@ namespace UrbanChaosMapEditor.Views.Overlays
             Debug.WriteLine($"[Buildings] Render drew {drawn} facet segments.");
         }
 
-        private bool FacetMatchesSelection(byte[] bytes, int facetAbsOffset)
+        private static bool FacetMatchesSelection(byte[] bytes, int facetAbsOffset, int selBuildingId, int? selStoreyId)
         {
-            // EXACTLY the same offsets your BuildingParser uses:
-            // +14 = Building (u16, 1-based), +16 = Storey (u16, 1-based)
+            // SAME offsets as parser/accessor: +14 = Building (u16, 1-based), +16 = Storey (u16, 1-based)
             ushort buildingId = ReadU16(bytes, facetAbsOffset + 14);
-            if (buildingId != (ushort)_hlBuildingId) return false;
+            if (buildingId != (ushort)selBuildingId) return false;
 
-            if (_hlStoreyId.HasValue)
+            if (selStoreyId.HasValue)
             {
                 ushort storeyId = ReadU16(bytes, facetAbsOffset + 16);
-                return storeyId == (ushort)_hlStoreyId.Value;
+                return storeyId == (ushort)selStoreyId.Value;
             }
             return true;
         }
@@ -268,11 +283,11 @@ namespace UrbanChaosMapEditor.Views.Overlays
         {
             3 => PenWallGreen,                 // Wall
             9 => PenCableRed,                  // Cable
-            10 or 11 or 13 => PenFenceYellow,  // Fences
-            12 => PenLadderOrange,             // Ladder
-            18 or 19 or 21 => PenDoorPurple,   // Doors
-            2 or 4 => PenRoofBlue,             // Roof / RoofQuad
-            15 or 16 or 17 => PenInsideGray,   // JustCollision / Partition / Inside
+            10 or 11 or 13 => PenFenceYellow,   // Fences
+            12 => PenLadderOrange,              // Ladder
+            18 or 19 or 21 => PenDoorPurple,    // Doors
+            2 or 4 => PenRoofBlue,              // Roof / RoofQuad
+            15 or 16 or 17 => PenInsideGray,    // JustCollision / Partition / Inside
             _ => PenDefault
         };
     }
