@@ -1,7 +1,7 @@
 ﻿using System.Collections.ObjectModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
-using UrbanChaosMapEditor.Services;
+using UrbanChaosMapEditor.Services.DataServices;
 using UrbanChaosMapEditor.ViewModels;
 
 public sealed class LightEditorViewModel : BaseViewModel

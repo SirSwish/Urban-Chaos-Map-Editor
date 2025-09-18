@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using UrbanChaosMapEditor.Models;
 using UrbanChaosMapEditor.Services;
+using UrbanChaosMapEditor.Services.DataServices;
 using UrbanChaosMapEditor.ViewModels;
 
 namespace UrbanChaosMapEditor.Views.MapOverlays
@@ -224,7 +225,6 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
             if (e.ClickCount == 2)
             {
                 // Let the bubbling OnMouseDown do the dialog (we'll mark handled so we don't do move)
-                e.Handled = true;
                 return;
             }
 

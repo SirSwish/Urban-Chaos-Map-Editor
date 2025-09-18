@@ -5,6 +5,7 @@ using System.ComponentModel;
 using System.Linq;
 using UrbanChaosMapEditor.Models;
 using UrbanChaosMapEditor.Services;
+using UrbanChaosMapEditor.Services.DataServices;
 
 namespace UrbanChaosMapEditor.ViewModels
 {

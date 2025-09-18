@@ -71,24 +71,45 @@ namespace UrbanChaosMapEditor.Models
     //   UBYTE Shake; UBYTE CutHole; UBYTE Counter[2];
     // }
     //
-    // Our minimal constructor remains so existing code continues to compile.
+    // IMPORTANT (CABLE SPECIAL-CASE — from create_cable_dfacet):
+    //   Height     = segment count along the cable
+    //   StyleIndex = step_angle1  (SWORD)  -> treat as *signed* when Type==Cable
+    //   Building   = step_angle2  (SWORD)  -> treat as *signed* when Type==Cable
+    //   FHeight    = second “mode” value (TextureStyle2 for the source wall)
+    // For non-cable facets, StyleIndex is the index into dstyles[], and Building is 1-based building id.
     public readonly struct DFacetRec
     {
         public readonly FacetType Type;
         public readonly byte X0, Z0, X1, Z1;
+
+        // For most facets: coarse height/segments (often connect_count*4).
+        // For cables: number of segments along the cable.
         public readonly byte Height;
+
+        // For most facets: fine height/foundation count.
+        // For cables: mode (wall_list[wall].TextureStyle2).
         public readonly byte FHeight;
+
+        // For most facets: index into dstyles[] (signed table).
+        // For cables: holds step_angle1 (written as SWORD in the game).
         public readonly ushort StyleIndex;
-        public readonly ushort Building;  // 1-based
-        public readonly ushort Storey;    // 1-based (DStorey)
+
+        // For most facets: 1-based building id.
+        // For cables: holds step_angle2 (written as SWORD in the game) — NOT a building id.
+        public readonly ushort Building;  // see cable helpers below
+
+        // 1-based storey id (DStorey) when applicable; not meaningful for cables.
+        public readonly ushort Storey;
+
         public readonly FacetFlags Flags;
 
-        // NEW: full fields from the C layout
+        // World-space Y at the endpoints (already resolved by the engine for cables; floors/others depend on flags).
         public readonly short Y0;         // world Y at (x0,z0)
         public readonly short Y1;         // world Y at (x1,z1)
+
         public readonly byte BlockHeight;
-        public readonly byte Open;        // door openness (for outside door types)
-        public readonly byte Dfcache;     // index into NIGHT_dfcache[] or 0
+        public readonly byte Open;        // door openness (for outside/inside door types)
+        public readonly byte Dfcache;     // index into a night/light cache (engine-side)
         public readonly byte Shake;
         public readonly byte CutHole;
         public readonly byte Counter0;
@@ -139,6 +160,25 @@ namespace UrbanChaosMapEditor.Models
             Counter0 = counter0;
             Counter1 = counter1;
         }
+
+        // -------- Cable helpers (safe, read-only) --------
+        public bool IsCable => Type == FacetType.Cable;
+
+        /// <summary> Cable: number of rendered segments along the span. </summary>
+        public int CableSegments => IsCable ? Height : 0;
+
+        /// <summary> Cable: step_angle1 (signed). For non-cables, 0. </summary>
+        public short CableStep1Signed => IsCable ? unchecked((short)StyleIndex) : (short)0;
+
+        /// <summary> Cable: step_angle2 (signed). For non-cables, 0. </summary>
+        public short CableStep2Signed => IsCable ? unchecked((short)Building) : (short)0;
+
+        /// <summary> Cable: raw unsigned views of the step fields, if you prefer. </summary>
+        public ushort CableStep1 => IsCable ? StyleIndex : (ushort)0;
+        public ushort CableStep2 => IsCable ? Building : (ushort)0;
+
+        /// <summary> Cable: mode value (TextureStyle2 in source), carried in FHeight. </summary>
+        public int CableMode => IsCable ? FHeight : 0;
     }
 
     // ----- Super-map aggregate we return from the parser -----
@@ -146,19 +186,43 @@ namespace UrbanChaosMapEditor.Models
     {
         public int StartOffset { get; init; }
         public int Length { get; init; }
+
         public DBuildingRec[] Buildings { get; init; } = Array.Empty<DBuildingRec>();
         public DFacetRec[] Facets { get; init; } = Array.Empty<DFacetRec>();
 
-        // NEW: style & paint_mem payloads from the block
-        public ushort[] Styles { get; init; } = Array.Empty<ushort>();  // dstyles table
-        public byte[] PaintMem { get; init; } = Array.Empty<byte>();    // paint_mem blob
+        // Style table and “paint_mem” blob (as stored in file).
+        // NOTE: dstyles is a SIGNED table in the game; keep as short[] here.
+        public short[] Styles { get; init; } = Array.Empty<short>();
+        public byte[] PaintMem { get; init; } = Array.Empty<byte>();
 
-        // (optional, handy for debug / UI)
-        public int NextDBuilding { get; init; }
-        public int NextDFacet { get; init; }
-        public int NextDStyle { get; init; }
-        public int NextPaintMem { get; init; }
-        public int NextDStorey { get; init; }
+        // NEW: dstorey table (each storey points at a slice inside PaintMem).
+        // Matches the C layout implied by add_painted_textures():
+        //   U16 StyleIndex; U16 PaintIndex; U16 Count
+        public readonly record struct DStoreyRec(ushort StyleIndex, ushort PaintIndex, ushort Count);
+        public DStoreyRec[] Storeys { get; init; } = Array.Empty<DStoreyRec>();
+
+        // Header counters as read from the block.
+        public ushort NextDBuilding { get; init; }
+        public ushort NextDFacet { get; init; }
+        public ushort NextDStyle { get; init; }
+        public ushort NextPaintMem { get; init; }
+        public ushort NextDStorey { get; init; }
         public int SaveType { get; init; }
+
+        /// <summary>
+        /// Returns the paint_mem slice for a given storey, or empty if OOB/corrupt.
+        /// Each byte: lower 7 bits = page (0..127), high bit often used as a flag.
+        /// </summary>
+        public ReadOnlySpan<byte> GetPaintForStorey(int storeyIndex)
+        {
+            if ((uint)storeyIndex >= (uint)Storeys.Length) return ReadOnlySpan<byte>.Empty;
+            var s = Storeys[storeyIndex];
+            int start = s.PaintIndex;
+            int count = s.Count;
+            if (count <= 0) return ReadOnlySpan<byte>.Empty;
+            int end = start + count;
+            if (start < 0 || end > PaintMem.Length) return ReadOnlySpan<byte>.Empty;
+            return new ReadOnlySpan<byte>(PaintMem, start, count);
+        }
     }
 }

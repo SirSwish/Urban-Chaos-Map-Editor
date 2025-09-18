@@ -2,23 +2,25 @@
 using System;
 using System.Diagnostics;
 using UrbanChaosMapEditor.Models;
+using UrbanChaosMapEditor.Services.DataServices;
 
 namespace UrbanChaosMapEditor.Services
 {
     /// <summary>
     /// Primary accessor for the building (“super map”) block.
     /// Read-once/Write-once pattern: parses from MapDataService buffer when asked.
-    /// Produces a BuildingArrays snapshot compatible with older BuildingParser usage.
+    /// Produces a BuildingArrays snapshot (includes DBuildings, DFacets, dstyles, paint_mem, dstoreys).
     /// </summary>
     public sealed class BuildingsAccessor
     {
         private readonly MapDataService _svc;
 
-        // Fixed V1 layout we’re targeting (same as your renderer):
+        // Fixed V1 layout we’re targeting (same as renderer):
         private const int HeaderSize = 48;
         private const int DBuildingSize = 24;
         private const int AfterBuildingsPad = 14;
         private const int DFacetSize = 26;
+        private const int DStoreyRecSize = 6; // U16 StyleIndex; U16 PaintIndex; U16 Count
 
         public BuildingsAccessor(MapDataService svc)
         {
@@ -30,15 +32,12 @@ namespace UrbanChaosMapEditor.Services
             _svc.MapBytesReset += (_, __) => BuildingsBytesReset?.Invoke(this, EventArgs.Empty);
         }
 
-        /// <summary>
-        /// Raised whenever the underlying building bytes may have changed
-        /// (forwarded from MapDataService events).
-        /// </summary>
+        /// <summary>Raised whenever the underlying building bytes may have changed.</summary>
         public event EventHandler? BuildingsBytesReset;
 
         /// <summary>
         /// Returns a full, immutable snapshot of the building block:
-        /// DBuildings, DFacets, dstyles[], paint_mem[] and header counters.
+        /// DBuildings, DFacets, dstyles[], paint_mem[], dstoreys[] and header counters.
         /// If no map is loaded or bounds are invalid, returns an empty snapshot.
         /// </summary>
         public BuildingArrays ReadSnapshot()
@@ -49,8 +48,9 @@ namespace UrbanChaosMapEditor.Services
                 Length = 0,
                 Buildings = Array.Empty<DBuildingRec>(),
                 Facets = Array.Empty<DFacetRec>(),
-                Styles = Array.Empty<ushort>(),
+                Styles = Array.Empty<short>(),
                 PaintMem = Array.Empty<byte>(),
+                Storeys = Array.Empty<BuildingArrays.DStoreyRec>(),
                 NextDBuilding = 0,
                 NextDFacet = 0,
                 NextDStyle = 0,
@@ -61,7 +61,7 @@ namespace UrbanChaosMapEditor.Services
 
             if (!_svc.IsLoaded) return empty;
 
-            // Use the same region math your renderer uses (cached on the service)
+            // Same region math as renderer (cached on the service)
             _svc.ComputeAndCacheBuildingRegion();
             if (!_svc.TryGetBuildingRegion(out int start, out int len)) return empty;
 
@@ -70,12 +70,16 @@ namespace UrbanChaosMapEditor.Services
 
             int saveType = BitConverter.ToInt32(bytes, 0);
 
-            // Header: note these counters are 1-based (index 0 unused) for DBuilding/DFacet
-            ushort nextDBuilding = ReadU16(bytes, start + 2);
-            ushort nextDFacet = ReadU16(bytes, start + 4);
-            ushort nextDStyle = ReadU16(bytes, start + 6);
+            // Header counters (1-based where noted)
+            ushort nextDBuilding = ReadU16(bytes, start + 2);   // DBuildings 1-based count
+            ushort nextDFacet = ReadU16(bytes, start + 4);   // DFacets    1-based count
+            ushort nextDStyle = ReadU16(bytes, start + 6);   // dstyles    full count incl. 0
             ushort nextPaintMem = (saveType >= 17) ? ReadU16(bytes, start + 8) : (ushort)0;
             ushort nextDStorey = (saveType >= 17) ? ReadU16(bytes, start + 10) : (ushort)0;
+
+            // --- DEBUG: header / region ---
+            Debug.WriteLine($"[BuildingsAccessor] saveType={saveType}  nextDBuilding={nextDBuilding} nextDFacet={nextDFacet} nextDStyle={nextDStyle} nextPaintMem={nextPaintMem} nextDStorey={nextDStorey}");
+            Debug.WriteLine($"[BuildingsAccessor] region start=0x{start:X} len=0x{len:X}");
 
             int totalBuildings = Math.Max(0, nextDBuilding - 1);
             int totalFacets = Math.Max(0, nextDFacet - 1);
@@ -104,7 +108,7 @@ namespace UrbanChaosMapEditor.Services
                 buildings[i] = new DBuildingRec(startFacet, endFacet);
             }
 
-            // ---- DFacets ----
+            // ---- DFacets (FULL 26B LAYOUT) ----
             var facets = new DFacetRec[totalFacets];
             for (int i = 0; i < totalFacets; i++)
             {
@@ -112,36 +116,62 @@ namespace UrbanChaosMapEditor.Services
 
                 var type = (FacetType)bytes[off + 0];
                 byte h = bytes[off + 1];
+
                 byte x0 = bytes[off + 2];
                 byte x1 = bytes[off + 3];
                 short y0 = BitConverter.ToInt16(bytes, off + 4);
                 short y1 = BitConverter.ToInt16(bytes, off + 6);
                 byte z0 = bytes[off + 8];
                 byte z1 = bytes[off + 9];
+
                 var flags = (FacetFlags)ReadU16(bytes, off + 10);
+
+                // NOTE:
+                //  - Non-cables: StyleIndex = index into dstyles[], Building = 1-based building id.
+                //  - Cables:     StyleIndex = step_angle1 (SWORD),   Building = step_angle2 (SWORD).
                 ushort sty = ReadU16(bytes, off + 12);
                 ushort bld = ReadU16(bytes, off + 14);
-                ushort st = ReadU16(bytes, off + 16);
-                byte fh = bytes[off + 18];
+
+                ushort st = ReadU16(bytes, off + 16); // DStorey id (1-based) or 0
+
+                byte fh = bytes[off + 18]; // fine height; for cables this is the “mode”
+                byte blockH = bytes[off + 19];
+                byte open = bytes[off + 20];
+                byte dfcache = bytes[off + 21];
+                byte shake = bytes[off + 22];
+                byte cutHole = bytes[off + 23];
+                byte counter0 = bytes[off + 24];
+                byte counter1 = bytes[off + 25];
 
                 facets[i] = new DFacetRec(
                     type, x0, z0, x1, z1,
-                    h, fh, sty, bld, st, flags
+                    h, fh, sty, bld, st, flags,
+                    y0, y1, blockH, open, dfcache, shake, cutHole, counter0, counter1
                 );
             }
             cursor = facetsEnd;
+            // --- DEBUG: sample facet ---
+            if (totalFacets > 0)
+            {
+                var f0 = facets[0];
+                Debug.WriteLine($"[BuildingsAccessor] first facet: id=1 type={f0.Type} bld={f0.Building} st={f0.Storey} styIdx={f0.StyleIndex} xy=({f0.X0},{f0.Z0})->({f0.X1},{f0.Z1})");
+            }
+            else
+            {
+                Debug.WriteLine("[BuildingsAccessor] no facets parsed.");
+            }
 
-            // ---- dstyles (UWORD[nextDStyle]) ----
-            ushort[] styles = Array.Empty<ushort>();
+            // ---- dstyles (S16[nextDStyle]) ----
+            short[] styles = Array.Empty<short>();
             if (nextDStyle > 0)
             {
                 long stylesBytes = (long)nextDStyle * 2;
                 long stylesEnd = cursor + stylesBytes;
                 if (stylesEnd <= blockEnd)
                 {
-                    styles = new ushort[nextDStyle];
+                    styles = new short[nextDStyle];
                     for (int i = 0; i < nextDStyle; i++)
-                        styles[i] = ReadU16(bytes, (int)(cursor + i * 2));
+                        styles[i] = BitConverter.ToInt16(bytes, (int)(cursor + i * 2));
                     cursor = stylesEnd;
                 }
                 else
@@ -169,6 +199,36 @@ namespace UrbanChaosMapEditor.Services
                 }
             }
 
+            // ---- dstoreys (U16 Style; U16 PaintIndex; U16 Count) ----
+            var storeys = Array.Empty<BuildingArrays.DStoreyRec>();
+            if (saveType >= 17 && nextDStorey > 0)
+            {
+                long storeyBytes = (long)nextDStorey * DStoreyRecSize;
+                long storeyEnd = cursor + storeyBytes;
+                if (storeyEnd <= blockEnd)
+                {
+                    storeys = new BuildingArrays.DStoreyRec[nextDStorey];
+                    for (int i = 0; i < nextDStorey; i++)
+                    {
+                        int off = (int)(cursor + i * DStoreyRecSize);
+                        ushort style = ReadU16(bytes, off + 0);
+                        ushort index = ReadU16(bytes, off + 2);
+                        ushort count = ReadU16(bytes, off + 4);
+                        storeys[i] = new BuildingArrays.DStoreyRec(style, index, count);
+                    }
+                    cursor = storeyEnd;
+                }
+                else
+                {
+                    Debug.WriteLine($"[BuildingsAccessor] dstoreys OOB: cursor=0x{cursor:X} count={nextDStorey} " +
+                                    $"blockEnd=0x{blockEnd:X}");
+                }
+            }
+
+            // --- DEBUG: parsed summary ---
+            Debug.WriteLine($"[BuildingsAccessor] Parsed: buildings={totalBuildings} facets={totalFacets} styles={styles.Length} paintMem={paintMem.Length} storeys={storeys.Length}");
+
+
             return new BuildingArrays
             {
                 StartOffset = start,
@@ -177,6 +237,7 @@ namespace UrbanChaosMapEditor.Services
                 Facets = facets,
                 Styles = styles,
                 PaintMem = paintMem,
+                Storeys = storeys,
 
                 NextDBuilding = nextDBuilding,
                 NextDFacet = nextDFacet,
@@ -187,8 +248,7 @@ namespace UrbanChaosMapEditor.Services
             };
         }
 
-        // ---------- Optional: strict scan helper kept here for convenience ----------
-        // If you still want the header finder to live with the accessor, keep this.
+        // ---------- Optional: strict scan helper ----------
         public static bool TryFindRegion(byte[] bytes, int objectOffset, out int headerOffset, out int regionLength)
         {
             headerOffset = -1; regionLength = 0;
@@ -213,6 +273,9 @@ namespace UrbanChaosMapEditor.Services
         }
 
         // ---------- Helpers ----------
+        public static int DecodePaintPage(byte b) => b & 0x7F;        // lower 7 bits
+        public static bool DecodePaintFlag(byte b) => (b & 0x80) != 0; // high bit
+
         private static bool PlausibleHeader(byte[] b, int off, int objOff, out long facetsOff, out long facetsEnd)
         {
             facetsOff = facetsEnd = -1;

@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using UrbanChaosMapEditor.Models;
 
-namespace UrbanChaosMapEditor.Services
+namespace UrbanChaosMapEditor.Services.DataServices
 {
     /// <summary>
     /// Manages the in-memory .lgt bytes and basic load/save/dirty state.
@@ -25,7 +25,7 @@ namespace UrbanChaosMapEditor.Services
         private const int EntryCount = 255;
         private const int PropertiesSize = 36;
         private const int NightColourSize = 3;
-        private const int TotalSize = HeaderSize + ReservedAfterHeader + (EntrySize * EntryCount) + PropertiesSize + NightColourSize; // 5171
+        private const int TotalSize = HeaderSize + ReservedAfterHeader + EntrySize * EntryCount + PropertiesSize + NightColourSize; // 5171
 
         // ---- State ----
         private byte[] _bytes = Array.Empty<byte>();
@@ -70,7 +70,7 @@ namespace UrbanChaosMapEditor.Services
             if (string.IsNullOrWhiteSpace(path))
                 throw new ArgumentException("Path is null/empty.", nameof(path));
 
-            _bytes = await System.IO.File.ReadAllBytesAsync(path).ConfigureAwait(false);
+            _bytes = await File.ReadAllBytesAsync(path).ConfigureAwait(false);
             if (_bytes.Length < TotalSize)
                 throw new InvalidDataException($".lgt file too small (got {_bytes.Length}, expected ≥ {TotalSize}).");
 
@@ -114,7 +114,7 @@ namespace UrbanChaosMapEditor.Services
 
             // Rebuild bytes from parsed models to ensure consistency.
             _bytes = BuildBytesFromModel();
-            await System.IO.File.WriteAllBytesAsync(CurrentPath, _bytes).ConfigureAwait(false);
+            await File.WriteAllBytesAsync(CurrentPath, _bytes).ConfigureAwait(false);
             _hasChanges = false;
 
             LightsSaved?.Invoke(this, new PathEventArgs(CurrentPath));
@@ -128,7 +128,7 @@ namespace UrbanChaosMapEditor.Services
                 throw new ArgumentException("Path is null/empty.", nameof(path));
 
             _bytes = BuildBytesFromModel();
-            await System.IO.File.WriteAllBytesAsync(path, _bytes).ConfigureAwait(false);
+            await File.WriteAllBytesAsync(path, _bytes).ConfigureAwait(false);
             CurrentPath = path;
             _hasChanges = false;
 

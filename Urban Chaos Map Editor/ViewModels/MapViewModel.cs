@@ -9,7 +9,9 @@ using System.Windows.Media.Imaging;
 using UrbanChaosMapEditor.Models;
 using UrbanChaosMapEditor.Services;
 using static UrbanChaosMapEditor.Models.PrimCatalog;
-using static UrbanChaosMapEditor.Services.TexturesAccessor; // brings in TextureGroup
+using static UrbanChaosMapEditor.Services.TexturesAccessor;
+using UrbanChaosMapEditor.Services.DataServices;
+using UrbanChaosMapEditor.Services.Textures; // brings in TextureGroup
 
 namespace UrbanChaosMapEditor.ViewModels
 {
@@ -213,6 +215,7 @@ namespace UrbanChaosMapEditor.ViewModels
 
                 RefreshTextureLists();
                 TexturesChangeBus.Instance.NotifyChanged();
+                LoadStylesForCurrentWorldAsync();
             }
         }
 
@@ -229,6 +232,7 @@ namespace UrbanChaosMapEditor.ViewModels
                 TextureCacheService.Instance.ActiveSet = _useBetaTextures ? "beta" : "release";
                 RefreshTextureLists();
                 TexturesChangeBus.Instance.NotifyChanged();
+                LoadStylesForCurrentWorldAsync();
             }
         }
 
@@ -627,6 +631,26 @@ namespace UrbanChaosMapEditor.ViewModels
                     Category = cat                           // <- IMPORTANT
                 });
             }
+        }
+        private static string ResolveStyleTmaPath(int world, bool useBeta)
+        {
+            // Assets/Textures/<release|beta>/World<world>/style.tma
+            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            var set = useBeta ? "beta" : "release";
+            return System.IO.Path.Combine(baseDir, "Assets", "Textures", set, $"World{world}", "style.tma");
+        }
+
+        private async void LoadStylesForCurrentWorldAsync()
+        {
+            try
+            {
+                var path = ResolveStyleTmaPath(TextureWorld, UseBetaTextures);
+                if (System.IO.File.Exists(path))
+                    await UrbanChaosMapEditor.Services.DataServices.StyleDataService.Instance.LoadAsync(path);
+                else
+                    UrbanChaosMapEditor.Services.DataServices.StyleDataService.Instance.Clear();
+            }
+            catch { /* non-fatal */ }
         }
 
         // helper used above

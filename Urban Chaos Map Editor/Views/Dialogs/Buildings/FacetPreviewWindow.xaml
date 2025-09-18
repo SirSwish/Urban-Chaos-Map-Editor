@@ -1,0 +1,142 @@
+<Window x:Class="UrbanChaosMapEditor.Views.Dialogs.Buildings.FacetPreviewWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Facet Preview" Width="900" Height="600"
+        Background="#202225"
+        WindowStartupLocation="CenterOwner"
+        AllowsTransparency="False"
+        ResizeMode="CanResize">
+
+    <Window.Resources>
+        <SolidColorBrush x:Key="Fg" Color="White"/>
+        <SolidColorBrush x:Key="Subtle" Color="#FFB0B0B0"/>
+
+        <!-- Default text color -->
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Fg}"/>
+        </Style>
+
+        <Style TargetType="Border">
+            <Setter Property="BorderBrush" Value="#333"/>
+        </Style>
+
+        <!-- DataGrid dark style + white headers -->
+        <Style TargetType="DataGrid">
+            <Setter Property="Foreground" Value="{StaticResource Fg}"/>
+            <Setter Property="Background" Value="#282A2E"/>
+            <Setter Property="GridLinesVisibility" Value="Horizontal"/>
+            <Setter Property="HeadersVisibility" Value="Column"/>
+            <Setter Property="RowBackground" Value="#2F3136"/>
+            <Setter Property="AlternatingRowBackground" Value="#32353B"/>
+        </Style>
+
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background" Value="#2B2D31"/>
+            <Setter Property="BorderBrush" Value="#3A3C41"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="12">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="340"/>
+            <ColumnDefinition Width="12"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- LEFT: Info panel -->
+        <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+
+                <!-- Facet header -->
+                <Border BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,10">
+                    <StackPanel>
+                        <TextBlock Text="Facet" FontWeight="Bold" FontSize="14"/>
+                        <TextBlock x:Name="FacetIdText" Margin="0,6,0,0"/>
+                        <TextBlock x:Name="FacetTypeText"/>
+                        <TextBlock x:Name="FacetCoordsText"/>
+                        <TextBlock x:Name="FacetHeightText"/>
+                        <TextBlock x:Name="FacetFlagsText"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Style section (RAW vs PAINTED) -->
+                <Border BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,10">
+                    <StackPanel>
+                        <TextBlock Text="Style" FontWeight="Bold" FontSize="14"/>
+                        <TextBlock x:Name="StyleModeText" Margin="0,6,0,0"/>
+
+                        <!-- NEW: recipe line used by code-behind (fixes missing name error) -->
+                        <TextBlock x:Name="RecipeText" Margin="0,4,0,0" Foreground="{StaticResource Subtle}"/>
+
+                        <!-- RAW -->
+                        <StackPanel x:Name="RawStylePanel" Margin="0,6,0,0">
+                            <TextBlock x:Name="RawStyleText"/>
+                        </StackPanel>
+
+                        <!-- PAINTED -->
+                        <StackPanel x:Name="PaintedPanel" Margin="0,6,0,0" Visibility="Collapsed">
+                            <TextBlock x:Name="PaintedSummaryText"/>
+                            <TextBlock Text="Paint bytes (raw):" Margin="0,6,0,2" FontWeight="SemiBold"/>
+                            <ScrollViewer Height="70" VerticalScrollBarVisibility="Auto">
+                                <TextBlock x:Name="PaintBytesHexText" FontFamily="Consolas" TextWrapping="Wrap"/>
+                            </ScrollViewer>
+
+                            <TextBlock Text="Decoded per-byte:" Margin="0,10,0,4" FontWeight="SemiBold"/>
+                            <DataGrid x:Name="PaintBytesGrid"
+                                      AutoGenerateColumns="False"
+                                      CanUserAddRows="False"
+                                      IsReadOnly="True"
+                                      HeadersVisibility="Column"
+                                      Height="160">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Binding="{Binding Index}" Header="#" Width="40"/>
+                                    <DataGridTextColumn Binding="{Binding ByteHex}" Header="Byte" Width="70"/>
+
+                                    <DataGridTextColumn Binding="{Binding Page}" Width="120">
+                                        <DataGridTextColumn.Header>
+                                            <TextBlock Text="Page (b&amp;0x7F)"/>
+                                        </DataGridTextColumn.Header>
+                                    </DataGridTextColumn>
+
+                                    <DataGridTextColumn Binding="{Binding Flag}" Width="120">
+                                        <DataGridTextColumn.Header>
+                                            <TextBlock Text="Flag (b&amp;0x80)"/>
+                                        </DataGridTextColumn.Header>
+                                    </DataGridTextColumn>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <TextBlock Text="(Scroll the preview if it's larger than the window.)"
+                           Foreground="{StaticResource Subtle}"/>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Spacer -->
+        <Grid Grid.Column="1"/>
+
+        <!-- RIGHT: Visual preview (exact pixels) -->
+        <Border Grid.Column="2" BorderThickness="1" CornerRadius="6" Padding="8">
+            <ScrollViewer x:Name="PreviewScroll"
+                          HorizontalScrollBarVisibility="Auto"
+                          VerticalScrollBarVisibility="Auto"
+                          Background="#1E1F22">
+                <Grid>
+                    <!-- Panel canvas -->
+                    <Canvas x:Name="PanelCanvas"
+                            Background="#202225"
+                            SnapsToDevicePixels="True"
+                            ClipToBounds="True"/>
+                    <!-- 64x64 grid -->
+                    <Canvas x:Name="GridCanvas" IsHitTestVisible="False"/>
+                </Grid>
+            </ScrollViewer>
+        </Border>
+    </Grid>
+</Window>

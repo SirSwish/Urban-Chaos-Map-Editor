@@ -5,7 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using UrbanChaosMapEditor.Services;
+using UrbanChaosMapEditor.Services.Textures;
 
 namespace UrbanChaosMapEditor.Views
 {

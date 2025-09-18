@@ -8,6 +8,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using UrbanChaosMapEditor.Models;
 using UrbanChaosMapEditor.Services;
+using UrbanChaosMapEditor.Services.DataServices;
 using UrbanChaosMapEditor.ViewModels;
 using static UrbanChaosMapEditor.Services.ObjectsAccessor;
 

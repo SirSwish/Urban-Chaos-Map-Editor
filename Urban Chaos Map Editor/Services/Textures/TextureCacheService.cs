@@ -10,7 +10,7 @@ using System.Windows;
 using System.Windows.Media.Imaging;
 
 
-namespace UrbanChaosMapEditor.Services
+namespace UrbanChaosMapEditor.Services.Textures
 {
     public sealed class TextureCacheService
     {
@@ -164,7 +164,7 @@ namespace UrbanChaosMapEditor.Services
                 static int TailNum(string s)
                 {
                     int us = s.LastIndexOf('_');
-                    return (us >= 0 && int.TryParse(s[(us + 1)..], out var n)) ? n : int.MinValue;
+                    return us >= 0 && int.TryParse(s[(us + 1)..], out var n) ? n : int.MinValue;
                 }
                 int na = TailNum(a), nb = TailNum(b);
                 if (na != int.MinValue && nb != int.MinValue) return na.CompareTo(nb);
@@ -179,7 +179,7 @@ namespace UrbanChaosMapEditor.Services
     {
         public int Done { get; }
         public int Total { get; }
-        public double Percent => Total == 0 ? 100.0 : (100.0 * Done / Total);
+        public double Percent => Total == 0 ? 100.0 : 100.0 * Done / Total;
 
         public TextureProgressEventArgs(int done, int total)
         {

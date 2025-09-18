@@ -4,7 +4,7 @@ using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace UrbanChaosMapEditor.Services
+namespace UrbanChaosMapEditor.Services.DataServices
 {
     public sealed class MapDataService
     {
@@ -185,7 +185,7 @@ namespace UrbanChaosMapEditor.Services
             int objectBytesFromHeader = BitConverter.ToInt32(bytes, 4);
 
             // V1 corrections
-            int sizeAdjustment = (saveType >= 25) ? 2000 : 0;
+            int sizeAdjustment = saveType >= 25 ? 2000 : 0;
 
             // Where object section begins (offset of NumObjects int32)
             int objectOffset = bytes.Length - 12 - sizeAdjustment - objectBytesFromHeader + 8;
@@ -225,7 +225,7 @@ namespace UrbanChaosMapEditor.Services
             // Header fields at file start (as before)
             int saveType = BitConverter.ToInt32(bytes, 0);
             int objectBytesFromHeader = BitConverter.ToInt32(bytes, 4);
-            int sizeAdjustment = (saveType >= 25) ? 2000 : 0;
+            int sizeAdjustment = saveType >= 25 ? 2000 : 0;
 
             // Where the object section begins (offset of NumObjects int32) — your V1 formula
             int objectOffset = bytes.Length - 12 - sizeAdjustment - objectBytesFromHeader + 8;
@@ -236,7 +236,7 @@ namespace UrbanChaosMapEditor.Services
                 BuildingsAccessor.TryFindRegion(bytes, objectOffset, out int headerOff, out int regionLen))
             {
                 _buildingRegion = (headerOff, regionLen);
-                System.Diagnostics.Debug.WriteLine(
+                Debug.WriteLine(
                     $"[Buildings] Region (strict) cached: start=0x{headerOff:X} len={regionLen} (end=0x{headerOff + regionLen:X}) saveType={saveType}");
                 return;
             }
@@ -250,12 +250,12 @@ namespace UrbanChaosMapEditor.Services
             if (buildingStart >= 0 && buildingEnd <= bytes.Length && buildingLen > 0)
             {
                 _buildingRegion = (buildingStart, buildingLen);
-                System.Diagnostics.Debug.WriteLine(
+                Debug.WriteLine(
                     $"[Buildings] Region (fallback) cached: start=0x{buildingStart:X} len={buildingLen} (end=0x{buildingEnd:X}) saveType={saveType}");
             }
             else
             {
-                System.Diagnostics.Debug.WriteLine(
+                Debug.WriteLine(
                     $"[Buildings] Failed to determine building region. objectOff=0x{objectOffset:X} fileLen={bytes.Length}");
             }
         }
@@ -265,7 +265,7 @@ namespace UrbanChaosMapEditor.Services
         {
             start = _buildingRegion.Start;
             length = _buildingRegion.Length;
-            return (start >= 0 && length > 0);
+            return start >= 0 && length > 0;
         }
 
         private static void DumpHex(byte[] b, int off, int count)

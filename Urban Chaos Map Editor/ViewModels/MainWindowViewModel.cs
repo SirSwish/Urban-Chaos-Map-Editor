@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Input;
 using UrbanChaosMapEditor.Models;
 using UrbanChaosMapEditor.Services;
+using UrbanChaosMapEditor.Services.DataServices;
 
 namespace UrbanChaosMapEditor.ViewModels
 {
@@ -1296,7 +1297,7 @@ _ => MapDataService.Instance.IsLoaded && Map.SelectedPrim != null);
             if (dlg.ShowDialog() == true)
             {
                 // Apply changes to the file
-                var acc = new Services.ObjectsAccessor(Services.MapDataService.Instance);
+                var acc = new Services.ObjectsAccessor(MapDataService.Instance);
                 var snap = acc.ReadSnapshot();
 
                 if (p.Index >= 0 && p.Index < snap.Prims.Length)
