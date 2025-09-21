@@ -24,6 +24,12 @@ namespace UrbanChaosMapEditor.Services.DataServices
         public event EventHandler? StylesCleared;
         public event EventHandler? StylesBytesReset;
 
+        /// <summary>
+        /// Map RAW style id -> zero-based index in TMA table.
+        /// Row 0 is dummy. 0x000 and 0x001 both map to row 1. Otherwise idx = raw.
+        /// </summary>
+        public static int MapRawStyleIdToTmaIndex(int raw) => (raw <= 1) ? 1 : raw;
+
         public async Task LoadAsync(string path)
         {
             if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("Path required.", nameof(path));
@@ -35,6 +41,41 @@ namespace UrbanChaosMapEditor.Services.DataServices
             StylesLoaded?.Invoke(this, EventArgs.Empty);
             StylesBytesReset?.Invoke(this, EventArgs.Empty);
             Debug.WriteLine($"[StyleDataService] Loaded from file '{full}', styles={_tma.TextureStyles.Count}");
+        }
+
+        /// <summary>
+        /// Fetch a TMA entry (Page/Tx/Ty/Flip) for a RAW style id + slot (0..4).
+        /// Applies the alias rule above.
+        /// </summary>
+        public bool TryGetTmaEntry(int rawStyleId, int slot, out Models.Styles.TextureEntry entry)
+        {
+            entry = default;
+            var tma = _tma;
+            if (tma == null || slot < 0) return false;
+
+            int idx = MapRawStyleIdToTmaIndex(rawStyleId);
+            if (idx < 0 || idx >= tma.TextureStyles.Count) return false;
+
+            var style = tma.TextureStyles[idx];
+            if (style.Entries == null || slot >= style.Entries.Count) return false;
+
+            entry = style.Entries[slot];
+            return true;
+        }
+
+        /// <summary>
+        /// Nice label for UI using the same alias rule: "Style #N: Name" where N is 1-based human index.
+        /// </summary>
+        public string GetStyleDisplayLabel(int rawStyleId)
+        {
+            var tma = _tma;
+            if (tma == null) return $"Style raw={rawStyleId}";
+            int idx = MapRawStyleIdToTmaIndex(rawStyleId);
+            if (idx < 0 || idx >= tma.TextureStyles.Count) return $"Style raw={rawStyleId}";
+            var s = tma.TextureStyles[idx];
+            // “human” is still 1-based, but row 0 is dummy—so this shows real style numbering.
+            int human = idx; // if you want first real to show “Style 1”, set human = idx; (since idx=1 for first real)
+            return string.IsNullOrWhiteSpace(s.Name) ? $"Style {human}" : $"Style {human}: {s.Name}";
         }
 
         /// <summary>

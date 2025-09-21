@@ -34,7 +34,9 @@ namespace UrbanChaosMapEditor.Views.EditorTabs
             if (idx0 < 0 || idx0 >= snap.Facets.Length) return;
 
             var df = snap.Facets[idx0];
-            var dlg = new FacetPreviewWindow(df)
+
+            // NEW: pass the facet id
+            var dlg = new FacetPreviewWindow(df, fvm.FacetId1)
             {
                 Owner = Application.Current.MainWindow
             };

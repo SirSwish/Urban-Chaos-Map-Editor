@@ -212,6 +212,28 @@ namespace UrbanChaosMapEditor.Services.DataServices
             DumpHex(bytes, buildingStart, buildingLen);
         }
 
+        public bool TryWriteU16_LE(int offset, ushort value)
+        {
+            // Write into the live backing buffer (MapBytes), mark dirty, and notify listeners.
+            int length;
+            lock (_sync)
+            {
+                if (MapBytes == null) return false;
+                if (offset < 0 || offset + 2 > MapBytes.Length) return false;
+
+                MapBytes[offset + 0] = (byte)(value & 0xFF);
+                MapBytes[offset + 1] = (byte)((value >> 8) & 0xFF);
+
+                HasChanges = true;
+                length = MapBytes.Length; // capture for event outside lock
+            }
+
+            // Tell anyone (renderer/VMs) who is watching that the byte content changed.
+            MapBytesReset?.Invoke(this, new MapBytesResetEventArgs(length));
+            DirtyStateChanged?.Invoke(this, EventArgs.Empty);
+            return true;
+        }
+
         public void ComputeAndCacheBuildingRegion()
         {
             // Default: no region

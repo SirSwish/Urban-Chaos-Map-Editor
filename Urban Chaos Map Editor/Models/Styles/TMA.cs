@@ -11,11 +11,6 @@ namespace UrbanChaosMapEditor.Models.Styles
         public uint SaveType { get; set; }
         public List<TextureStyle> TextureStyles { get; set; } = new();
 
-        /// <summary>
-        /// True if we removed a leading dummy style (all-zero entries) during normalization.
-        /// </summary>
-        public bool DroppedLeadingDummy { get; private set; }
-
         public static TMAFile ReadTMAFile(string filePath)
         {
             var tma = new TMAFile();
@@ -24,8 +19,8 @@ namespace UrbanChaosMapEditor.Models.Styles
             tma.SaveType = reader.ReadUInt32();                        // little-endian
 
             // TEXTURES_XY
-            ushort stylesCount = reader.ReadUInt16();                  // rows (styles)
-            ushort entriesPerStyle = reader.ReadUInt16();              // columns (entries per style) — usually 5
+            ushort stylesCount = reader.ReadUInt16();               // rows (styles)
+            ushort entriesPerStyle = reader.ReadUInt16();               // columns (entries per style) — usually 5
             tma.TextureStyles = new List<TextureStyle>(stylesCount);
             for (int i = 0; i < stylesCount; i++)
             {
@@ -37,7 +32,7 @@ namespace UrbanChaosMapEditor.Models.Styles
                         Page = reader.ReadByte(),
                         Tx = reader.ReadByte(),
                         Ty = reader.ReadByte(),
-                        Flip = reader.ReadByte() // opaque for now
+                        Flip = reader.ReadByte() // opaque bitfield for now
                     });
                 }
                 tma.TextureStyles.Add(style);
@@ -67,33 +62,15 @@ namespace UrbanChaosMapEditor.Models.Styles
                 }
             }
 
-            // Normalize once so raw dstyles values can be treated as 0-based everywhere.
-            tma.NormalizeDropLeadingDummy();
+            // IMPORTANT: do NOT drop/shift any row here.
+            // dstyles raw values are treated as zero-based indices into TextureStyles.
 
             return tma;
         }
 
         /// <summary>
-        /// If the first style is a "dummy" (all entries Page/Tx/Ty/Flip are zero),
-        /// drop it so that raw style ids from the map (0-based) align with TextureStyles[0].
-        /// Returns true if an entry was removed.
-        /// </summary>
-        public bool NormalizeDropLeadingDummy()
-        {
-            DroppedLeadingDummy = false;
-            if (TextureStyles.Count == 0) return false;
-
-            if (IsDummy(TextureStyles[0]))
-            {
-                TextureStyles.RemoveAt(0);
-                DroppedLeadingDummy = true;
-                return true;
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// Convenience accessor: fetch (Page,Tx,Ty,Flip) for a 0-based raw style id and slot (0..4).
+        /// Fetch (Page,Tx,Ty,Flip) for a raw 0-based style id from the map and an entry slot (0..4).
+        /// Returns false if OOB.
         /// </summary>
         public bool TryGetEntry(int rawStyleId, int slot, out TextureEntry entry)
         {
@@ -105,11 +82,17 @@ namespace UrbanChaosMapEditor.Models.Styles
             return true;
         }
 
-        private static bool IsDummy(TextureStyle? s)
+        /// <summary>
+        /// Convenience label for UI: "Style #N: Name" (where N = rawStyleId+1).
+        /// </summary>
+        public string GetDisplayLabel(int rawStyleId)
         {
-            if (s?.Entries == null || s.Entries.Count == 0) return true;
-            // Heuristic: treat as dummy if all entries are zeroed (typical buffer row).
-            return s.Entries.All(e => e.Page == 0 && e.Tx == 0 && e.Ty == 0 && e.Flip == 0);
+            if (rawStyleId < 0 || rawStyleId >= TextureStyles.Count)
+                return $"Style #{rawStyleId + 1}";
+            var s = TextureStyles[rawStyleId];
+            return string.IsNullOrWhiteSpace(s.Name)
+                 ? $"Style #{rawStyleId + 1}"
+                 : $"Style #{rawStyleId + 1}: {s.Name}";
         }
     }
 

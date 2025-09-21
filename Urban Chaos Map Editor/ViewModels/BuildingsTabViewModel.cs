@@ -272,7 +272,11 @@ namespace UrbanChaosMapEditor.ViewModels
                                 Flags = $"0x{((ushort)f.Flags):X4}",
                                 BuildingId = bId,
                                 StoreyId = f.Storey,
-                                Raw = f                 // <= NEW
+                                Raw = f     ,            // <= NEW
+                                Y0 = f.Y0,
+                                Y1 = f.Y1,
+                                BlockHeight = f.BlockHeight,
+                                Open = f.Open
                             });
                         }
 
@@ -313,6 +317,10 @@ namespace UrbanChaosMapEditor.ViewModels
                         Flags = $"0x{((ushort)f.Flags):X4}",
                         BuildingId = 0,  // not a real building for cables
                         StoreyId = 0,
+                        Y0 = f.Y0,
+                        Y1 = f.Y1,
+                        BlockHeight = f.BlockHeight,
+                        Open = f.Open,
                         Raw = f                 // <= NEW
                     });
                 }

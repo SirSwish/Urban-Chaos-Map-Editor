@@ -8,18 +8,19 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Resources;
 using System.Windows.Shapes;
 using UrbanChaosMapEditor.Models;
-using UrbanChaosMapEditor.Models.Styles; // TMAFile
+using UrbanChaosMapEditor.Models.Styles;
 using UrbanChaosMapEditor.Services;
 using UrbanChaosMapEditor.Services.DataServices;
-
 // --- resolve common ambiguities cleanly ---
 using IOPath = System.IO.Path;
 using StyleTextureEntry = UrbanChaosMapEditor.Models.Styles.TextureEntry;
+using TextureEntry = UrbanChaosMapEditor.Models.Styles.TextureEntry;
 
 namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
 {
@@ -28,7 +29,7 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
         private const int PanelPx = 64;
       
 
-        private readonly DFacetRec _facet;
+        private DFacetRec _facet;
 
         // Snapshot tables we need to resolve styles
         private short[] _dstyles = Array.Empty<short>();
@@ -40,12 +41,21 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
         private readonly int _worldNumber;
         private readonly string? _texturesRoot;
 
+        private static int NormalizeStyleId(int id) => id <= 0 ? 1 : id;
+        private readonly int _facetIndex1; // 1-based file-order index for this facet
+        private ObservableCollection<FlagItem>? _flagItems;
+
+        private readonly int _facetId1;          // 1-based file-order id you already pass in
+        private int _facetBaseOffset = -1;       // absolute offset of this facet in the map bytes
+        private const int DFacetSize = 26;       // facet record size (bytes)
 
 
-        public FacetPreviewWindow(DFacetRec facet)
+
+        public FacetPreviewWindow(DFacetRec facet, int facetId1)
         {
             InitializeComponent();
             _facet = facet;
+            _facetIndex1 = facetId1;
 
             // Get both values directly from the shell's Map object. No defaults.
             if (!TryResolveVariantAndWorld(out _variant, out _worldNumber))
@@ -56,6 +66,67 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             }
 
             Loaded += async (_, __) => await BuildUIAsync();
+        }
+
+
+
+        // --- Flag item model (with the bit it represents) ---
+        private sealed class FlagItem
+        {
+            public string Name { get; init; } = "";
+            public FacetFlags Bit { get; init; }
+            public bool IsSet { get; set; }
+        }
+
+        // Build list from current flags
+        private static IEnumerable<FlagItem> BuildFlagItemsEx(FacetFlags f)
+        {
+            FlagItem Make(string name, FacetFlags bit) => new() { Name = name, Bit = bit, IsSet = (f & bit) != 0 };
+
+            yield return Make("Invisible", FacetFlags.Invisible);
+            yield return Make("Inside", FacetFlags.Inside);
+            yield return Make("Dlit", FacetFlags.Dlit);
+            yield return Make("HugFloor", FacetFlags.HugFloor);
+            yield return Make("Electrified", FacetFlags.Electrified);
+            yield return Make("TwoSided", FacetFlags.TwoSided);
+            yield return Make("Unclimbable", FacetFlags.Unclimbable);
+            yield return Make("OnBuilding", FacetFlags.OnBuilding);
+            yield return Make("BarbTop", FacetFlags.BarbTop);
+            yield return Make("SeeThrough", FacetFlags.SeeThrough);
+            yield return Make("Open", FacetFlags.Open);
+            yield return Make("Deg90", FacetFlags.Deg90);
+            yield return Make("TwoTextured", FacetFlags.TwoTextured);
+            yield return Make("FenceCut", FacetFlags.FenceCut);
+        }
+
+        // Hook events once items are set
+        private void HookFlagEvents()
+        {
+            FlagsList.AddHandler(System.Windows.Controls.Primitives.ToggleButton.CheckedEvent,
+                new RoutedEventHandler(OnFlagToggled));
+            FlagsList.AddHandler(System.Windows.Controls.Primitives.ToggleButton.UncheckedEvent,
+                new RoutedEventHandler(OnFlagToggled));
+        }
+
+        // Recompute mask + write to file
+        private void OnFlagToggled(object? sender, RoutedEventArgs e)
+        {
+            if (_flagItems == null) return;
+
+            FacetFlags newMask = 0;
+            foreach (var it in _flagItems)
+                if (it.IsSet) newMask |= it.Bit;
+
+            // Persist via BuildingsAccessor
+            var ok = new BuildingsAccessor(MapDataService.Instance).TryUpdateFacetFlags(_facetIndex1, newMask);
+            if (!ok)
+            {
+                Debug.WriteLine($"[FacetPreview] TryUpdateFacetFlags failed for facet #{_facetIndex1}");
+                return;
+            }
+
+            // Update the on-screen hex line
+            FacetFlagsText.Text = $"Flags: 0x{((ushort)newMask):X4}   Building={_facet.Building} Storey={_facet.Storey} StyleIndex={_facet.StyleIndex}";
         }
 
         // ---------- Small VMs for paint bytes grid ----------
@@ -70,15 +141,36 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
         // ---------- Entry point ----------
         private async Task BuildUIAsync()
         {
+            // Populate the Type dropdown
+            FacetTypeCombo.ItemsSource = Enum.GetValues(typeof(FacetType)).Cast<FacetType>().ToList();
+            FacetTypeCombo.SelectedItem = _facet.Type;
+
+            // Get a fresh snapshot to compute this facet's absolute byte offset
+            var arrays = new BuildingsAccessor(MapDataService.Instance).ReadSnapshot();
+
+            // You need the absolute start of the facets table from the snapshot.
+            // If your snapshot type is `BuildingArrays`, add an int property like `FacetsStart` (absolute).
+            _facetBaseOffset = arrays.FacetsStart + (_facetIndex1 - 1) * DFacetSize;
+
+            // Show segments + an approximate storey count for non-fence types (4 segments = 1 storey)
+            int approxStoreys = UsesVerticalUnitsAsPanels(_facet.Type)
+                ? Math.Max(1, (int)_facet.Height)
+                : Math.Max(1, ((int)_facet.Height + 3) / 4); // ceil(height/4)
+
             // Meta
             FacetIdText.Text = $"Facet (file-order id not shown)";
-            FacetTypeText.Text = $"Type: {_facet.Type}";
+            InitFacetTypeCombo();
             FacetCoordsText.Text = $"Coords: ({_facet.X0},{_facet.Z0}) → ({_facet.X1},{_facet.Z1})";
-            FacetHeightText.Text = $"Height: coarse={_facet.Height} fine={_facet.FHeight}";
+            FacetHeightText.Text =
+                                    UsesVerticalUnitsAsPanels(_facet.Type)
+                                    ? $"Height: coarse={_facet.Height} fine={_facet.FHeight}  (~{approxStoreys} stacked fence panels)"
+                                    : $"Height: coarse={_facet.Height} fine={_facet.FHeight}  (~{approxStoreys} storeys)";
             FacetFlagsText.Text = $"Flags: 0x{((ushort)_facet.Flags):X4}   Building={_facet.Building} Storey={_facet.Storey} StyleIndex={_facet.StyleIndex}";
+            _flagItems = new ObservableCollection<FlagItem>(BuildFlagItemsEx(_facet.Flags));
+            FlagsList.ItemsSource = _flagItems;
+            HookFlagEvents();
 
             // Grab building block snapshot (for dstyles / paint mem / storeys)
-            var arrays = new BuildingsAccessor(MapDataService.Instance).ReadSnapshot();
             _dstyles = arrays.Styles ?? Array.Empty<short>();
             _paintMem = arrays.PaintMem ?? Array.Empty<byte>();
             _storeys = arrays.Storeys ?? Array.Empty<BuildingArrays.DStoreyRec>();
@@ -94,6 +186,17 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             // Draw exact-pixel preview
             DrawPreview(_facet);
         }
+
+        private bool _initializingTypeCombo;
+
+        private void InitFacetTypeCombo()
+        {
+            _initializingTypeCombo = true;
+            FacetTypeCombo.ItemsSource = Enum.GetValues(typeof(FacetType)).Cast<FacetType>().ToList();
+            FacetTypeCombo.SelectedItem = _facet.Type;
+            _initializingTypeCombo = false;
+        }
+
 
         // ---------- Summary / recipe ----------
         private void SummarizeStyleAndRecipe(DFacetRec f)
@@ -164,22 +267,86 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             }
         }
 
-        private string BuildRawRecipeString(int styleId)
-        {
-            var tma = StyleDataService.Instance.TmaSnapshot;
-            if (tma == null || styleId < 0 || styleId >= tma.TextureStyles.Count)
-                return "(style not in TMA)";
+        private static bool UsesVerticalUnitsAsPanels(FacetType t) =>
+                            t == FacetType.Fence ||
+                            t == FacetType.FenceFlat ||
+                            t == FacetType.FenceBrick ||
+                            t == FacetType.Ladder ||
+                            t == FacetType.Trench;
 
-            var entries = tma.TextureStyles[styleId].Entries; // expect 5
-            var sb = new StringBuilder();
-            sb.Append($"Style #{styleId}: ");
-            for (int i = 0; i < entries.Count; i++)
+        private void FacetTypeCombo_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_initializingTypeCombo) return;
+            if (FacetTypeCombo.SelectedItem is not FacetType newType ||
+                newType == _facet.Type)
+                return;
+
+            var acc = new BuildingsAccessor(MapDataService.Instance);
+
+            // Use the id you actually initialized in the ctor (_facetIndex1)
+            if (acc.TryUpdateFacetType(_facetIndex1, newType))
             {
-                var e = entries[i];
+                // Build a preview copy WITHOUT 'with'
+                var preview = CopyFacetWithType(_facet, newType);
+
+                // Optionally keep our local snapshot in sync
+                _facet = preview;
+
+                DrawPreview(preview);
+            }
+        }
+
+        private static DFacetRec CopyFacetWithType(DFacetRec f, FacetType newType)
+        {
+            return new DFacetRec(
+                newType,
+                f.X0, f.Z0, f.X1, f.Z1,
+                f.Height, f.FHeight,
+                f.StyleIndex, f.Building, f.Storey, f.Flags,
+                f.Y0, f.Y1,
+                f.BlockHeight,
+                f.Open,
+                f.Dfcache,   // <-- lowercase 'c'
+                f.Shake,
+                f.CutHole,
+                f.Counter0,
+                f.Counter1
+            );
+        }
+
+
+        private string BuildRawRecipeString(int rawStyleId)
+        {
+            var svc = StyleDataService.Instance;
+            var tma = svc.TmaSnapshot;
+            if (tma == null) return "(style.tma not loaded)";
+
+            int idx = StyleDataService.MapRawStyleIdToTmaIndex(rawStyleId);
+            if (idx < 0 || idx >= tma.TextureStyles.Count) return "(style out of range)";
+
+            var style = tma.TextureStyles[idx];
+            var sb = new StringBuilder();
+            sb.Append($"Style {idx}: ");
+            for (int i = 0; i < style.Entries.Count; i++)
+            {
+                var e = style.Entries[i];
                 if (i > 0) sb.Append(" | ");
                 sb.Append($"[{i}] P{e.Page} Tx{e.Tx} Ty{e.Ty} F{e.Flip}");
             }
             return sb.ToString();
+        }
+
+        // If there are >1 rows, the TOP row (row==0) uses (base-1).
+        // If base-1 == 0, alias to 1. If only 1 row, just use base.
+        private static int StyleIdForRow(int baseId, int row, int panelsDown)
+        {
+            int n = NormalizeStyleId(baseId);
+            if (panelsDown > 1 && row == 0)
+            {
+                int cap = n - 1;
+                return NormalizeStyleId(cap);
+            }
+            return n;
         }
 
         private static string ToHexLine(byte[] data)
@@ -205,72 +372,137 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             return bytes;
         }
 
+        // Get the tile (Tx/Ty/Flip) from style.tma and page override from paint_mem if painted.
+        private bool TryResolvePanelTileRaw(int rawStyleId, int slot, bool painted, in BuildingArrays.DStoreyRec ds,
+                                            int panelIndexAlong, out UrbanChaosMapEditor.Models.Styles.TextureEntry entry, out byte? pageOverride)
+        {
+            entry = default;
+            pageOverride = null;
+
+            int styleId = NormalizeStyleId(rawStyleId);
+            if (!TryGetTmaEntry(styleId, slot, out entry))
+                return false;
+
+            if (painted && _paintMem != null && ds.Count > 0 &&
+                ds.PaintIndex >= 0 && ds.PaintIndex + ds.Count <= _paintMem.Length)
+            {
+                int clamped = Math.Min(panelIndexAlong, ds.Count - 1);
+                byte b = _paintMem[ds.PaintIndex + clamped];
+                pageOverride = (byte)(b & 0x7F);
+            }
+
+            return true;
+        }
+
+        // Resolve dstyles → base style (or DStorey base).
+        private bool TryResolveBase(ushort styleIndex, out int baseStyleId, out bool painted, out BuildingArrays.DStoreyRec ds)
+        {
+            baseStyleId = -1;
+            painted = false;
+            ds = default;
+
+            if (_dstyles == null || styleIndex >= _dstyles.Length) return false;
+
+            short val = _dstyles[styleIndex];
+            if (val >= 0)
+            {
+                baseStyleId = NormalizeStyleId(val);
+                return true;
+            }
+
+            // painted
+            painted = true;
+            int sid = -val;         // 1-based
+            int idx = sid - 1;
+            if (idx < 0 || idx >= _storeys.Length) return false;
+
+            ds = _storeys[idx];
+            baseStyleId = NormalizeStyleId(ds.StyleIndex);
+            return true;
+        }
+
         // ---------- Preview drawing ----------
         private void DrawPreview(DFacetRec f)
         {
+            // Horizontal panels = distance in tiles along X/Z (each tile = one 64px panel).
             int dx = Math.Abs(f.X1 - f.X0);
             int dz = Math.Abs(f.Z1 - f.Z0);
-            int panelsAcross = Math.Max(dx, dz);                    // tiles along the wall
-            if (panelsAcross <= 0) panelsAcross = Math.Max(1, (int)f.Height);
+            int panelsAcross = Math.Max(dx, dz);
+            if (panelsAcross <= 0) panelsAcross = 1;
 
-            int panelsDown = 1;
-            if (f.Type == FacetType.Fence || f.Type == FacetType.FenceFlat ||
-                f.Type == FacetType.FenceBrick || f.Type == FacetType.Ladder ||
-                f.Type == FacetType.Trench)
-            {
-                panelsDown = Math.Max(1, (int)f.Height);            // these use Height≈panels vertically
-            }
+            // Vertical panels from pixel height: Height is 16px units, FHeight is pixels.
+            const int PanelPx = 64;
+            int totalPixelsY = f.Height * 16 + f.FHeight;
+            int panelsDown = Math.Max(1, (totalPixelsY + (PanelPx - 1)) / PanelPx); // ceil-div
 
-            int width = Math.Max(1, panelsAcross) * PanelPx;
-            int height = Math.Max(1, panelsDown) * PanelPx;
+            int width = panelsAcross * PanelPx;
+            int height = panelsDown * PanelPx;
 
             PanelCanvas.Children.Clear();
             GridCanvas.Children.Clear();
             PanelCanvas.Width = width; PanelCanvas.Height = height;
             GridCanvas.Width = width; GridCanvas.Height = height;
 
-            for (int row = 0; row < panelsDown; row++)
+            // Resolve base style (RAW or PAINTED)
+            if (!TryResolveBase(f.StyleIndex, out int baseStyleId, out bool isPainted, out var dstorey))
             {
-                for (int col = 0; col < panelsAcross; col++)
+                var rect = new System.Windows.Shapes.Rectangle
                 {
-                    int panelIndexAlong = col;
+                    Width = width,
+                    Height = height,
+                    Fill = new SolidColorBrush(Color.FromRgb(0x55, 0x58, 0x5E))
+                };
+                System.Windows.Controls.Canvas.SetLeft(rect, 0);
+                System.Windows.Controls.Canvas.SetTop(rect, 0);
+                PanelCanvas.Children.Add(rect);
+            }
+            else
+            {
+                for (int row = 0; row < panelsDown; row++)
+                {
+                    // Cap rule: only if there is more than 1 row; top row uses (base-1), with 0 ⇒ 1.
+                    int rowStyleId = StyleIdForRow(baseStyleId, row, panelsDown);
 
-                    if (TryResolveTileForPanel(_facet.StyleIndex, panelIndexAlong, out var texEntry, out byte? pageOverride) &&
-                        TryLoadTileBitmap(pageOverride ?? texEntry.Page, texEntry.Tx, texEntry.Ty, texEntry.Flip, out var bmp))
+                    for (int col = 0; col < panelsAcross; col++)
                     {
-                        var img = new System.Windows.Controls.Image
-                        {
-                            Width = PanelPx,
-                            Height = PanelPx,
-                            Source = bmp
-                        };
-                        System.Windows.Controls.Canvas.SetLeft(img, col * PanelPx);
-                        System.Windows.Controls.Canvas.SetTop(img, row * PanelPx);
-                        PanelCanvas.Children.Add(img);
-                    }
-                    else
-                    {
-                        // fallback grey
-                        var rect = new Rectangle
-                        {
-                            Width = PanelPx,
-                            Height = PanelPx,
-                            Fill = new SolidColorBrush(Color.FromRgb(0x55, 0x58, 0x5E))
-                        };
-                        System.Windows.Controls.Canvas.SetLeft(rect, col * PanelPx);
-                        System.Windows.Controls.Canvas.SetTop(rect, row * PanelPx);
-                        PanelCanvas.Children.Add(rect);
+                        int slot = col % 5;
+                        int panelIndexAlong = col;
 
-                        Debug.WriteLine($"[FacetPreview] Style resolve failed for panel {panelIndexAlong} (styleIdx={_facet.StyleIndex}).");
+                        if (TryResolvePanelTileRaw(rowStyleId, slot, isPainted, dstorey, panelIndexAlong,
+                                                   out var texEntry, out byte? pageOverride) &&
+                            TryLoadTileBitmap(pageOverride ?? texEntry.Page, texEntry.Tx, texEntry.Ty, texEntry.Flip, out var bmp))
+                        {
+                            var img = new System.Windows.Controls.Image
+                            {
+                                Width = PanelPx,
+                                Height = PanelPx,
+                                Source = bmp
+                            };
+                            System.Windows.Controls.Canvas.SetLeft(img, col * PanelPx);
+                            System.Windows.Controls.Canvas.SetTop(img, row * PanelPx);
+                            PanelCanvas.Children.Add(img);
+                        }
+                        else
+                        {
+                            var rect = new System.Windows.Shapes.Rectangle
+                            {
+                                Width = PanelPx,
+                                Height = PanelPx,
+                                Fill = new SolidColorBrush(Color.FromRgb(0x55, 0x58, 0x5E))
+                            };
+                            System.Windows.Controls.Canvas.SetLeft(rect, col * PanelPx);
+                            System.Windows.Controls.Canvas.SetTop(rect, row * PanelPx);
+                            PanelCanvas.Children.Add(rect);
+
+                            Debug.WriteLine($"[FacetPreview] Resolve failed row={row} col={col} (base={baseStyleId}→rowStyle={rowStyleId}, slot={slot}, styleIdx={f.StyleIndex}).");
+                        }
                     }
                 }
             }
 
-            // 64×64 grid (full panels only)
+            // 64×64 grid + outline
             DrawGrid(GridCanvas, width, height, PanelPx, PanelPx);
-
-            // outline
-            var outline = new Rectangle
+            var outline = new System.Windows.Shapes.Rectangle
             {
                 Width = width,
                 Height = height,
@@ -280,7 +512,6 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             };
             GridCanvas.Children.Add(outline);
         }
-
         private bool TryResolveVariantAndWorld(out string? variant, out int world)
         {
             variant = null;
@@ -356,57 +587,51 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
         /// RAW:   dstyles[styleIdx] >= 0 → use that styleId’s slot (mod 5).
         /// PAINT: dstyles[styleIdx] <  0 → base style from DStorey + page override from paint_mem (if any).
         /// </summary>
-        private bool TryResolveTileForPanel(ushort styleIndex, int panelIndexAlong,
-                                            out StyleTextureEntry entry, out byte? pageOverride)
+        private bool TryResolveTileForPanel(ushort styleIndex, int col, int row,
+                                    out TextureEntry entry, out byte? pageOverride)
         {
-            entry = default;
-            pageOverride = null;
+            entry = default; pageOverride = null;
+            if (_dstyles == null || styleIndex >= _dstyles.Length) return false;
 
-            if (_dstyles == null || styleIndex >= _dstyles.Length)
-                return false;
+            short dval = _dstyles[styleIndex];
+            int slot = (col + row) % 5;                 // matches the game’s slot cycling
 
-            short styleVal = _dstyles[styleIndex];
-            int slot = panelIndexAlong % 5; // 5 entries per style in style.tma
+            // --- work out the base style id (raw or painted) ---
+            int baseStyleId;
+            BuildingArrays.DStoreyRec? ds = null;
 
-            if (styleVal >= 0)
+            if (dval >= 0)
             {
-                int styleId = styleVal;
-                if (TryGetTmaEntry(styleId, slot, out entry))
-                    return true;
-
-                Debug.WriteLine($"[FacetPreview] RAW: TryGetTmaEntry failed for styleId={styleId} slot={slot}");
-                return false;
+                baseStyleId = dval;
             }
             else
             {
-                int dstorey1 = -styleVal; // 1-based
-                int idx = dstorey1 - 1;
-                if (idx < 0 || idx >= _storeys.Length)
-                {
-                    Debug.WriteLine($"[FacetPreview] PAINTED: bad dstorey id {dstorey1}");
-                    return false;
-                }
+                int sid = -dval;
+                if (sid < 1 || sid > _storeys.Length) return false;
+                ds = _storeys[sid - 1];
+                baseStyleId = ds.Value.StyleIndex;
 
-                var ds = _storeys[idx];
-                if (!TryGetTmaEntry(ds.StyleIndex, slot, out entry))
+                // pageOverride from paint_mem (clamped horizontally)
+                var bytes = GetPaintBytes(ds.Value);
+                if (bytes.Length > 0)
                 {
-                    Debug.WriteLine($"[FacetPreview] PAINTED: base entry missing for baseStyle={ds.StyleIndex} slot={slot}");
-                    return false;
+                    int ix = Math.Min(col, bytes.Length - 1);
+                    pageOverride = (byte)(bytes[ix] & 0x7F);
                 }
-
-                // page override from paint_mem: clamp for short lists (repeat last)
-                if (_paintMem != null && ds.Count > 0 && ds.PaintIndex >= 0 && ds.PaintIndex < _paintMem.Length)
-                {
-                    int clamped = Math.Min(panelIndexAlong, ds.Count - 1);
-                    int byteIndex = ds.PaintIndex + clamped;
-                    if (byteIndex >= 0 && byteIndex < _paintMem.Length)
-                    {
-                        byte b = _paintMem[byteIndex];
-                        pageOverride = (byte)(b & 0x7F);
-                    }
-                }
-                return true;
             }
+
+            // --- TOP CAP RULE ---
+            // Top row (row==0) of exterior normal walls uses the "cap" style = baseStyleId - 1 (if > 0)
+            if (row == 0 &&
+                _facet.Type == FacetType.Normal &&
+                (_facet.Flags & (FacetFlags.Inside | FacetFlags.TwoSided)) == 0 &&
+                baseStyleId > 0)
+            {
+                baseStyleId -= 1;
+            }
+
+            // fetch the TMA entry with effective style + slot
+            return TryGetTmaEntry(baseStyleId, slot, out entry);
         }
 
         // ---------- TMA + textures ----------

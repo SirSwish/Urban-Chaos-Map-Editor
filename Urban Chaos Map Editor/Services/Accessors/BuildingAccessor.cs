@@ -8,8 +8,7 @@ namespace UrbanChaosMapEditor.Services
 {
     /// <summary>
     /// Primary accessor for the building (“super map”) block.
-    /// Read-once/Write-once pattern: parses from MapDataService buffer when asked.
-    /// Produces a BuildingArrays snapshot (includes DBuildings, DFacets, dstyles, paint_mem, dstoreys).
+    /// Produces a BuildingArrays snapshot (DBuildings, DFacets, dstyles, paint_mem, dstoreys).
     /// </summary>
     public sealed class BuildingsAccessor
     {
@@ -19,8 +18,9 @@ namespace UrbanChaosMapEditor.Services
         private const int HeaderSize = 48;
         private const int DBuildingSize = 24;
         private const int AfterBuildingsPad = 14;
-        private const int DFacetSize = 26;
-        private const int DStoreyRecSize = 6; // U16 StyleIndex; U16 PaintIndex; U16 Count
+
+        public const int DFacetSize = 26; // expose for callers
+        private const int DStoreyRecSize = 6;  // U16 StyleIndex; U16 PaintIndex; U16 Count
 
         public BuildingsAccessor(MapDataService svc)
         {
@@ -46,6 +46,7 @@ namespace UrbanChaosMapEditor.Services
             {
                 StartOffset = -1,
                 Length = 0,
+                FacetsStart = -1,
                 Buildings = Array.Empty<DBuildingRec>(),
                 Facets = Array.Empty<DFacetRec>(),
                 Styles = Array.Empty<short>(),
@@ -71,9 +72,9 @@ namespace UrbanChaosMapEditor.Services
             int saveType = BitConverter.ToInt32(bytes, 0);
 
             // Header counters (1-based where noted)
-            ushort nextDBuilding = ReadU16(bytes, start + 2);   // DBuildings 1-based count
-            ushort nextDFacet = ReadU16(bytes, start + 4);   // DFacets    1-based count
-            ushort nextDStyle = ReadU16(bytes, start + 6);   // dstyles    full count incl. 0
+            ushort nextDBuilding = ReadU16(bytes, start + 2);  // DBuildings 1-based count
+            ushort nextDFacet = ReadU16(bytes, start + 4);  // DFacets    1-based count
+            ushort nextDStyle = ReadU16(bytes, start + 6);  // dstyles    full count incl. 0
             ushort nextPaintMem = (saveType >= 17) ? ReadU16(bytes, start + 8) : (ushort)0;
             ushort nextDStorey = (saveType >= 17) ? ReadU16(bytes, start + 10) : (ushort)0;
 
@@ -112,7 +113,7 @@ namespace UrbanChaosMapEditor.Services
             var facets = new DFacetRec[totalFacets];
             for (int i = 0; i < totalFacets; i++)
             {
-                int off = (int)(facetsOff + i * DFacetSize);
+                int off = facetsOff + i * DFacetSize;
 
                 var type = (FacetType)bytes[off + 0];
                 byte h = bytes[off + 1];
@@ -150,6 +151,7 @@ namespace UrbanChaosMapEditor.Services
                 );
             }
             cursor = facetsEnd;
+
             // --- DEBUG: sample facet ---
             if (totalFacets > 0)
             {
@@ -176,8 +178,7 @@ namespace UrbanChaosMapEditor.Services
                 }
                 else
                 {
-                    Debug.WriteLine($"[BuildingsAccessor] styles OOB: cursor=0x{cursor:X} " +
-                                    $"count={nextDStyle} blockEnd=0x{blockEnd:X}");
+                    Debug.WriteLine($"[BuildingsAccessor] styles OOB: cursor=0x{cursor:X} count={nextDStyle} blockEnd=0x{blockEnd:X}");
                 }
             }
 
@@ -194,8 +195,7 @@ namespace UrbanChaosMapEditor.Services
                 }
                 else
                 {
-                    Debug.WriteLine($"[BuildingsAccessor] paint_mem OOB: cursor=0x{cursor:X} size={nextPaintMem} " +
-                                    $"blockEnd=0x{blockEnd:X}");
+                    Debug.WriteLine($"[BuildingsAccessor] paint_mem OOB: cursor=0x{cursor:X} size={nextPaintMem} blockEnd=0x{blockEnd:X}");
                 }
             }
 
@@ -220,19 +220,18 @@ namespace UrbanChaosMapEditor.Services
                 }
                 else
                 {
-                    Debug.WriteLine($"[BuildingsAccessor] dstoreys OOB: cursor=0x{cursor:X} count={nextDStorey} " +
-                                    $"blockEnd=0x{blockEnd:X}");
+                    Debug.WriteLine($"[BuildingsAccessor] dstoreys OOB: cursor=0x{cursor:X} count={nextDStorey} blockEnd=0x{blockEnd:X}");
                 }
             }
 
             // --- DEBUG: parsed summary ---
             Debug.WriteLine($"[BuildingsAccessor] Parsed: buildings={totalBuildings} facets={totalFacets} styles={styles.Length} paintMem={paintMem.Length} storeys={storeys.Length}");
 
-
             return new BuildingArrays
             {
                 StartOffset = start,
                 Length = len,
+                FacetsStart = facetsOff,           // << NEW
                 Buildings = buildings,
                 Facets = facets,
                 Styles = styles,
@@ -272,9 +271,55 @@ namespace UrbanChaosMapEditor.Services
             return false;
         }
 
+        // ---------- Editing helpers ----------
+        /// <summary>Compute the absolute byte offset of a 1-based facet id.</summary>
+        public bool TryGetFacetOffset(int facetId1, out int facetOffset)
+        {
+            facetOffset = -1;
+            if (!_svc.IsLoaded) return false;
+
+            _svc.ComputeAndCacheBuildingRegion();
+            if (!_svc.TryGetBuildingRegion(out int start, out int _)) return false;
+
+            var bytes = _svc.GetBytesCopy();
+            if (start < 0 || start + HeaderSize > bytes.Length) return false;
+
+            ushort nextDBuilding = ReadU16(bytes, start + 2);
+            ushort nextDFacet = ReadU16(bytes, start + 4);
+
+            int totalFacets = Math.Max(0, nextDFacet - 1);
+            if (facetId1 < 1 || facetId1 > totalFacets) return false;
+
+            int buildingsOff = start + HeaderSize;
+            int facetsOff = buildingsOff + (nextDBuilding - 1) * DBuildingSize + AfterBuildingsPad;
+
+            facetOffset = facetsOff + (facetId1 - 1) * DFacetSize;
+            return facetOffset + DFacetSize <= bytes.Length;
+        }
+
+        public bool TryUpdateFacetFlags(int facetId1, FacetFlags flags)
+        {
+            if (!TryGetFacetOffset(facetId1, out int facet0)) return false;
+            int flagsOff = facet0 + 10; // U16 at +10
+            return _svc.TryWriteU16_LE(flagsOff, (ushort)flags);
+        }
+
+        public bool TryUpdateFacetType(int facetId1, FacetType newType)
+        {
+            if (!_svc.IsLoaded) return false;
+            if (!TryGetFacetOffset(facetId1, out int facet0)) return false;
+
+            _svc.Edit(bytes =>
+            {
+                if (facet0 >= 0 && facet0 < bytes.Length)
+                    bytes[facet0 + 0] = (byte)newType; // first byte is type
+            });
+            return true;
+        }
+
         // ---------- Helpers ----------
-        public static int DecodePaintPage(byte b) => b & 0x7F;        // lower 7 bits
-        public static bool DecodePaintFlag(byte b) => (b & 0x80) != 0; // high bit
+        public static int DecodePaintPage(byte b) => b & 0x7F;         // lower 7 bits
+        public static bool DecodePaintFlag(byte b) => (b & 0x80) != 0;  // high bit
 
         private static bool PlausibleHeader(byte[] b, int off, int objOff, out long facetsOff, out long facetsEnd)
         {

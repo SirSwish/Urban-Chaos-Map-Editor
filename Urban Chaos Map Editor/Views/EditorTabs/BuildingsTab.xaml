@@ -108,7 +108,6 @@
             </Grid.RowDefinitions>
 
             <!-- TreeView (scrollable) -->
-            <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
                 <TreeView ItemsSource="{Binding Buildings}"
                           SelectedItemChanged="TreeView_OnSelectedItemChanged"
                           MouseDoubleClick="TreeView_OnMouseDoubleClick"
@@ -168,6 +167,10 @@
                                                         <TextBlock Text="{Binding Coords}"/>
                                                         <TextBlock Text="  type="/>
                                                         <TextBlock Text="{Binding Type}"/>
+                                                        <TextBlock Text="  y=" />
+                                                        <TextBlock Text="{Binding Y0}" />
+                                                        <TextBlock Text="?" />
+                                                        <TextBlock Text="{Binding Y1}" />
 
                                                         <!-- Non-cable style -->
                                                         <StackPanel Orientation="Horizontal">
@@ -210,9 +213,8 @@
                         </HierarchicalDataTemplate>
                     </TreeView.ItemTemplate>
                 </TreeView>
-            </ScrollViewer>
 
-            <!-- Splitter -->
+                <!-- Splitter -->
             <GridSplitter Grid.Row="1"
                           HorizontalAlignment="Stretch"
                           VerticalAlignment="Center"

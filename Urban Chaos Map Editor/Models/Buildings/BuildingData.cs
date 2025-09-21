@@ -187,6 +187,9 @@ namespace UrbanChaosMapEditor.Models
         public int StartOffset { get; init; }
         public int Length { get; init; }
 
+        // NEW: absolute start of the facets table
+        public int FacetsStart { get; init; }
+
         public DBuildingRec[] Buildings { get; init; } = Array.Empty<DBuildingRec>();
         public DFacetRec[] Facets { get; init; } = Array.Empty<DFacetRec>();
 
