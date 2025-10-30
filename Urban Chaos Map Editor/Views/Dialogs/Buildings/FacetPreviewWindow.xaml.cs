@@ -2,8 +2,10 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Formats.Tar;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -372,25 +374,113 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             return bytes;
         }
 
-        // Get the tile (Tx/Ty/Flip) from style.tma and page override from paint_mem if painted.
-        private bool TryResolvePanelTileRaw(int rawStyleId, int slot, bool painted, in BuildingArrays.DStoreyRec ds,
-                                            int panelIndexAlong, out UrbanChaosMapEditor.Models.Styles.TextureEntry entry, out byte? pageOverride)
+        // Build the 5-slot ring of tile indices (0..63) for a raw style id.
+        // Each slot i uses Entries[i].Tx/Ty; we return Ty*8 + Tx for each.
+        private bool GetStyleRing(int rawStyleId, out int[] ring, out IList<StyleTextureEntry> entries)
         {
-            entry = default;
-            pageOverride = null;
+            ring = Array.Empty<int>();
+            entries = Array.Empty<StyleTextureEntry>();
 
-            int styleId = NormalizeStyleId(rawStyleId);
-            if (!TryGetTmaEntry(styleId, slot, out entry))
+            var tma = StyleDataService.Instance.TmaSnapshot;
+            if (tma == null) return false;
+
+            int idx = StyleDataService.MapRawStyleIdToTmaIndex(rawStyleId); // 0->1, 1->1, else raw
+            if (idx < 0 || idx >= tma.TextureStyles.Count) return false;
+
+            var style = tma.TextureStyles[idx];
+            entries = style.Entries;
+
+            if (entries == null || entries.Count < 5) return false;
+
+            // Precompute the ring (absolute 0..63 atlas index from (Tx,Ty))
+            var r = new int[5];
+            for (int i = 0; i < 5; i++)
+            {
+                var e = entries[i];
+                r[i] = (e.Ty * 8 + e.Tx) & 63;
+            }
+            ring = r;
+            return true;
+        }
+
+
+        [MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static int Wrap(int x, int n) => n <= 0 ? 0 : ((x % n) + n) % n;
+
+        [MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static int Mod64(int x) => (x & 63);
+
+        // Resolve the final (page, tx, ty, flip) for a given panel (col,row).
+        // Implements the rules:
+        //  - If multi-row and row==0 → CAP row = (baseStyle-1) normalized; ignore paint bytes.
+        //  - Otherwise (raw): use base style, slot = col%5, direct.
+        //  - Otherwise (painted): seeds wrap across columns; under-cap row uses seed;
+        //    rows further down add the ring delta: seed + (ring[slot]-ring[slot0]) mod 64.
+        // Returns false if we can't resolve from TMA (stays grey).
+        private bool TryResolvePanelTile(int col, int row, int panelsDown,
+                                  out byte page, out byte tx, out byte ty, out byte flip)
+        {
+            page = tx = ty = flip = 0;
+
+            // Base (raw or painted)
+            if (!TryResolveBase(_facet.StyleIndex, out int baseStyleId, out bool isPainted, out var ds))
                 return false;
 
-            if (painted && _paintMem != null && ds.Count > 0 &&
-                ds.PaintIndex >= 0 && ds.PaintIndex + ds.Count <= _paintMem.Length)
+            // Cap rule: if there are >1 rows, top row is cap = (base-1), unpainted
+            bool hasCap = panelsDown > 1;
+            if (hasCap && row == 0)
             {
-                int clamped = Math.Min(panelIndexAlong, ds.Count - 1);
-                byte b = _paintMem[ds.PaintIndex + clamped];
-                pageOverride = (byte)(b & 0x7F);
+                int capStyle = NormalizeStyleId(baseStyleId - 1);
+                if (!GetStyleRing(capStyle, out var capRing, out var capEntries)) return false;
+
+                int slot0 = col % 5;
+                var e = capEntries[slot0];
+
+                page = e.Page;                 // cap uses its own page (no paint override)
+                flip = e.Flip;
+
+                int idxInPage = capRing[slot0];
+                tx = (byte)(idxInPage % 8);
+                ty = (byte)(idxInPage / 8);
+                return true;
             }
 
+            // Below the cap: either RAW or PAINTED-under-cap
+            int rowBelowCap = hasCap ? row - 1 : row;
+            if (!GetStyleRing(baseStyleId, out var ring, out var entries)) return false;
+
+            int slot0Col = col % 5;                   // reference slot per column
+            int slot = (slot0Col + rowBelowCap) % 5;
+
+            var eSlot = entries[slot];
+            flip = eSlot.Flip;
+
+            if (!isPainted)
+            {
+                // RAW: page comes from style entry
+                page = eSlot.Page;
+            }
+            else
+            {
+                // PAINTED: page override comes from paint bytes (lower 7 bits), one byte per column (wrap)
+                var bytes = GetPaintBytes(ds);
+                if (bytes.Length > 0)
+                {
+                    int seedIndex = col % bytes.Length;
+                    byte paintByte = bytes[seedIndex];
+                    page = (byte)(paintByte & 0x7F);
+                }
+                else
+                {
+                    // No paint bytes? fall back to style page.
+                    page = eSlot.Page;
+                }
+            }
+
+            // Tile inside that page = style ring entry
+            int idxInPage2 = ring[slot];              // 0..63
+            tx = (byte)(idxInPage2 % 8);
+            ty = (byte)(idxInPage2 / 8);
             return true;
         }
 
@@ -443,59 +533,42 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             PanelCanvas.Width = width; PanelCanvas.Height = height;
             GridCanvas.Width = width; GridCanvas.Height = height;
 
-            // Resolve base style (RAW or PAINTED)
-            if (!TryResolveBase(f.StyleIndex, out int baseStyleId, out bool isPainted, out var dstorey))
+            for (int row = 0; row < panelsDown; row++)
             {
-                var rect = new System.Windows.Shapes.Rectangle
+                for (int col = 0; col < panelsAcross; col++)
                 {
-                    Width = width,
-                    Height = height,
-                    Fill = new SolidColorBrush(Color.FromRgb(0x55, 0x58, 0x5E))
-                };
-                System.Windows.Controls.Canvas.SetLeft(rect, 0);
-                System.Windows.Controls.Canvas.SetTop(rect, 0);
-                PanelCanvas.Children.Add(rect);
-            }
-            else
-            {
-                for (int row = 0; row < panelsDown; row++)
-                {
-                    // Cap rule: only if there is more than 1 row; top row uses (base-1), with 0 ⇒ 1.
-                    int rowStyleId = StyleIdForRow(baseStyleId, row, panelsDown);
-
-                    for (int col = 0; col < panelsAcross; col++)
+                    if (TryResolvePanelTile(col, row, panelsDown, out byte page, out byte tx, out byte ty, out byte flip) &&
+                        TryLoadTileBitmap(page, tx, ty, flip, out var bmp))
                     {
-                        int slot = col % 5;
-                        int panelIndexAlong = col;
-
-                        if (TryResolvePanelTileRaw(rowStyleId, slot, isPainted, dstorey, panelIndexAlong,
-                                                   out var texEntry, out byte? pageOverride) &&
-                            TryLoadTileBitmap(pageOverride ?? texEntry.Page, texEntry.Tx, texEntry.Ty, texEntry.Flip, out var bmp))
+#if DEBUG
+                        int totalIndex = page * 64 + ty * 8 + tx;
+                        Debug.WriteLine($"[FacetPreview] r={row} c={col} pd={panelsDown} -> page={page} tx={tx} ty={ty} flip={flip} (tex{totalIndex:D3}hi.png)");
+#endif
+                        var img = new System.Windows.Controls.Image
                         {
-                            var img = new System.Windows.Controls.Image
-                            {
-                                Width = PanelPx,
-                                Height = PanelPx,
-                                Source = bmp
-                            };
-                            System.Windows.Controls.Canvas.SetLeft(img, col * PanelPx);
-                            System.Windows.Controls.Canvas.SetTop(img, row * PanelPx);
-                            PanelCanvas.Children.Add(img);
-                        }
-                        else
+                            Width = PanelPx,
+                            Height = PanelPx,
+                            Source = bmp
+                        };
+                        System.Windows.Controls.Canvas.SetLeft(img, col * PanelPx);
+                        System.Windows.Controls.Canvas.SetTop(img, row * PanelPx);
+                        PanelCanvas.Children.Add(img);
+                    }
+                    else
+                    {
+                        var rect = new System.Windows.Shapes.Rectangle
                         {
-                            var rect = new System.Windows.Shapes.Rectangle
-                            {
-                                Width = PanelPx,
-                                Height = PanelPx,
-                                Fill = new SolidColorBrush(Color.FromRgb(0x55, 0x58, 0x5E))
-                            };
-                            System.Windows.Controls.Canvas.SetLeft(rect, col * PanelPx);
-                            System.Windows.Controls.Canvas.SetTop(rect, row * PanelPx);
-                            PanelCanvas.Children.Add(rect);
+                            Width = PanelPx,
+                            Height = PanelPx,
+                            Fill = new SolidColorBrush(Color.FromRgb(0x55, 0x58, 0x5E))
+                        };
+                        System.Windows.Controls.Canvas.SetLeft(rect, col * PanelPx);
+                        System.Windows.Controls.Canvas.SetTop(rect, row * PanelPx);
+                        PanelCanvas.Children.Add(rect);
 
-                            Debug.WriteLine($"[FacetPreview] Resolve failed row={row} col={col} (base={baseStyleId}→rowStyle={rowStyleId}, slot={slot}, styleIdx={f.StyleIndex}).");
-                        }
+#if DEBUG
+                        Debug.WriteLine($"[FacetPreview] resolve/load failed r={row} c={col} pd={panelsDown}");
+#endif
                     }
                 }
             }
@@ -594,7 +667,7 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             if (_dstyles == null || styleIndex >= _dstyles.Length) return false;
 
             short dval = _dstyles[styleIndex];
-            int slot = (col + row) % 5;                 // matches the game’s slot cycling
+            int slot = col % 5;                // matches the game’s slot cycling
 
             // --- work out the base style id (raw or painted) ---
             int baseStyleId;
@@ -683,20 +756,27 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
 
 
 
-        private bool TryGetTmaEntry(int styleId, int slot, out StyleTextureEntry entry)
+        private bool TryGetTmaEntry(int rawStyleId, int slot, out StyleTextureEntry entry)
         {
             entry = default;
+
             var tma = StyleDataService.Instance.TmaSnapshot;
             if (tma == null) return false;
-            if (styleId < 0 || styleId >= tma.TextureStyles.Count) return false;
 
-            var style = tma.TextureStyles[styleId];
-            var entries = style.Entries; // List<TextureEntry>
+            // Map raw style id to the actual TMA row index:
+            // (your current rule: raw 0 => 1, raw 1 => 1, otherwise raw => raw)
+            int idx = StyleDataService.MapRawStyleIdToTmaIndex(rawStyleId);
+
+            if (idx < 0 || idx >= tma.TextureStyles.Count) return false;
+
+            var style = tma.TextureStyles[idx];
+            var entries = style.Entries;
             if (entries == null || slot < 0 || slot >= entries.Count) return false;
 
             entry = entries[slot];
             return true;
         }
+
 
         private bool TryLoadTileBitmap(byte page, byte tx, byte ty, byte flip, out BitmapSource? bmp)
         {
@@ -704,77 +784,77 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
 
             if (string.IsNullOrWhiteSpace(_variant) || _worldNumber <= 0)
             {
-                System.Diagnostics.Debug.WriteLine($"[FacetPreview] TryLoadTileBitmap: Variant/World unresolved — cannot load tile (page={page}, tx={tx}, ty={ty}).");
+                Debug.WriteLine($"[FacetPreview] TryLoadTileBitmap: Variant/World unresolved — cannot load tile (page={page}, tx={tx}, ty={ty}).");
                 return false;
             }
 
-            // Decide subfolder based on page, same rules as before
-            string? subfolder = null;
-            if (page <= 3) subfolder = $"world{_worldNumber}";
-            else if (page <= 7) subfolder = "shared";
-            else if (page == 8) subfolder = $"world{_worldNumber}/insides";
+            // Decide candidate subfolders from the page
+            // Primary mapping (legacy):
+            //   0..3  → worldX
+            //   4..7  → shared
+            //   8     → worldX/insides
+            // Allow higher pages as worldX as a best-effort fallback.
+            var candidates = new List<string>(3);
+            if (page <= 3)
+                candidates.Add($"world{_worldNumber}");
+            else if (page <= 7)
+                candidates.Add("shared");
+            else if (page == 8)
+                candidates.Add($"world{_worldNumber}/insides");
             else
+                candidates.Add($"world{_worldNumber}");   // permissive fallback
+
+            int indexInPage = ty * 8 + tx;
+            int totalIndex = page * 64 + indexInPage;
+
+            foreach (var subfolder in candidates)
             {
-                System.Diagnostics.Debug.WriteLine($"[FacetPreview] TryLoadTileBitmap: Unsupported page {page}.");
-                return false;
+                foreach (var packUri in EnumerateTilePackUris(_variant!, subfolder!, page, tx, ty))
+                {
+                    Debug.WriteLine($"[FacetPreview] Tile pack URI: {packUri}");
+                    try
+                    {
+                        var sri = Application.GetResourceStream(new Uri(packUri));
+                        if (sri?.Stream == null) continue;
+
+                        var baseBmp = new BitmapImage();
+                        baseBmp.BeginInit();
+                        baseBmp.CacheOption = BitmapCacheOption.OnLoad;
+                        baseBmp.StreamSource = sri.Stream;
+                        baseBmp.EndInit();
+                        baseBmp.Freeze();
+
+                        bool flipX = (flip & 0x01) != 0;
+                        bool flipY = (flip & 0x02) != 0;
+
+                        if (flipX || flipY)
+                        {
+                            var tb = new TransformedBitmap(baseBmp, new ScaleTransform(flipX ? -1 : 1, flipY ? -1 : 1));
+                            tb.Freeze();
+                            bmp = tb;
+                        }
+                        else
+                        {
+                            bmp = baseBmp;
+                        }
+                        return true;
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[FacetPreview] Failed to load pack image '{packUri}': {ex.Message}");
+                    }
+                }
             }
 
-            // Try .png first (hi + non-hi), then .bmp (hi + non-hi)
-            var tried = new List<string>(4);
-            foreach (var packUri in EnumerateTilePackUris(_variant!, subfolder!, page, tx, ty))
-            {
-                tried.Add(packUri);
-                try
-                {
-                    var sri = Application.GetResourceStream(new Uri(packUri, UriKind.Absolute));
-                    if (sri?.Stream == null) continue;
-
-                    var baseBmp = new BitmapImage();
-                    baseBmp.BeginInit();
-                    baseBmp.CacheOption = BitmapCacheOption.OnLoad;
-                    baseBmp.StreamSource = sri.Stream;
-                    baseBmp.EndInit();
-                    baseBmp.Freeze();
-
-                    bool flipX = (flip & 0x01) != 0;
-                    bool flipY = (flip & 0x02) != 0;
-
-                    if (flipX || flipY)
-                    {
-                        var tb = new TransformedBitmap(baseBmp, new ScaleTransform(flipX ? -1 : 1, flipY ? -1 : 1));
-                        tb.Freeze();
-                        bmp = tb;
-                    }
-                    else
-                    {
-                        bmp = baseBmp;
-                    }
-                    return true;
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[FacetPreview] Failed to load pack image '{packUri}': {ex.Message}");
-                    // keep trying the next candidate
-                }
-            }
-
-            System.Diagnostics.Debug.WriteLine(
-                "[FacetPreview] No embedded tile found for " +
-                $"page={page}, tx={tx}, ty={ty}. Tried: {string.Join(" | ", tried)}");
+            Debug.WriteLine($"[FacetPreview] No embedded tile found for page={page}, tx={tx}, ty={ty} (totalIndex={totalIndex}).");
             return false;
         }
 
+
         private IEnumerable<string> EnumerateTilePackUris(string variant, string subfolder, byte page, byte tx, byte ty)
         {
-            int indexInPage = ty * 8 + tx;     // 0..63
-            int totalIndex = page * 64 + indexInPage;
-
-            // e.g., .../tex254hi.png, .../tex254.png, .../tex254hi.bmp, .../tex254.bmp
-            string basePath = $"pack://application:,,,/Assets/Textures/{variant}/{subfolder}/tex{totalIndex:D3}";
-            yield return basePath + "hi.png";
-            yield return basePath + ".png";
-            yield return basePath + "hi.bmp";
-            yield return basePath + ".bmp";
+            int totalIndex = page * 64 + ty * 8 + tx;
+            yield return $"pack://application:,,,/Assets/Textures/{variant}/{subfolder}/tex{totalIndex:D3}hi.png";
         }
 
     }
