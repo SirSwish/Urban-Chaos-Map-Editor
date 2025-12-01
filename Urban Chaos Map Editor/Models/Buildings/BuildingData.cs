@@ -201,7 +201,7 @@ namespace UrbanChaosMapEditor.Models
         // NEW: dstorey table (each storey points at a slice inside PaintMem).
         // Matches the C layout implied by add_painted_textures():
         //   U16 StyleIndex; U16 PaintIndex; U16 Count
-        public readonly record struct DStoreyRec(ushort StyleIndex, ushort PaintIndex, ushort Count);
+        public readonly record struct DStoreyRec(ushort StyleIndex, ushort PaintIndex, sbyte Count, byte Padding);
         public DStoreyRec[] Storeys { get; init; } = Array.Empty<DStoreyRec>();
 
         // Header counters as read from the block.

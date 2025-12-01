@@ -1,4 +1,5 @@
-﻿// BuildingsTabViewModel.cs  (updated)
+﻿// /ViewModels/BuildingsTabViewModel.cs
+// BuildingsTabViewModel.cs  (updated)
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;

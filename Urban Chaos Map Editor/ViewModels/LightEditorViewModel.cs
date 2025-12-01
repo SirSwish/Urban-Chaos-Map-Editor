@@ -1,4 +1,5 @@
-﻿using System.Collections.ObjectModel;
+﻿// /ViewModels/LightEditorViewModel.cs
+using System.Collections.ObjectModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using UrbanChaosMapEditor.Services.DataServices;

@@ -1,4 +1,5 @@
-﻿namespace UrbanChaosMapEditor.Models
+﻿// /Models/Objects/Prim.cs
+namespace UrbanChaosMapEditor.Models
 {
     // Layout (little-endian):
     // [0..1] short Y   (height)

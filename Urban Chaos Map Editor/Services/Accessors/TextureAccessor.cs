@@ -1,4 +1,5 @@
-﻿using System;
+﻿// /Services/Accessors/TextureAccessor.cs
+using System;
 using UrbanChaosMapEditor.Models;
 using UrbanChaosMapEditor.Services.DataServices;
 

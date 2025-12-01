@@ -1,4 +1,6 @@
-﻿using System;
+﻿// /Views/MapOverlays/GhostTexturePreviewLayer.cs
+
+using System;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Media;

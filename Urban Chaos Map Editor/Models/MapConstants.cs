@@ -1,4 +1,6 @@
-﻿namespace UrbanChaosMapEditor.Models
+﻿// /Models/MapConstants.cs
+
+namespace UrbanChaosMapEditor.Models
 {
     public static class MapConstants
     {

@@ -1,4 +1,5 @@
-﻿using System;
+﻿// /Models/Lights/LgtModels.cs
+using System;
 
 namespace UrbanChaosMapEditor.Models
 {

@@ -1,4 +1,5 @@
-﻿using System.ComponentModel;
+﻿// /Views/MapOverlays/BuildingLayer.cs
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Media;
@@ -262,18 +263,12 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
             Debug.WriteLine($"[Buildings] Render drew {drawn} facet segments.");
         }
 
-        private static bool FacetMatchesSelection(byte[] bytes, int facetAbsOffset, int selBuildingId, int? selStoreyId)
+        private static bool FacetMatchesSelection(byte[] bytes, int facetAbsOffset, int selBuildingId, int? _)
         {
-            // SAME offsets as parser/accessor: +14 = Building (u16, 1-based), +16 = Storey (u16, 1-based)
+            // +14 = DBuilding index (U16, 1-based).
+            // +16 = DFacet.DStorey (used e.g. as inside-rect index for doors), NOT FStorey index.
             ushort buildingId = ReadU16(bytes, facetAbsOffset + 14);
-            if (buildingId != (ushort)selBuildingId) return false;
-
-            if (selStoreyId.HasValue)
-            {
-                ushort storeyId = ReadU16(bytes, facetAbsOffset + 16);
-                return storeyId == (ushort)selStoreyId.Value;
-            }
-            return true;
+            return buildingId == (ushort)selBuildingId;
         }
 
         private static ushort ReadU16(byte[] b, int off)

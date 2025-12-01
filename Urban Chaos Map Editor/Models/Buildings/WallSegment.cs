@@ -1,4 +1,5 @@
-﻿namespace UrbanChaosMapEditor.Models
+﻿// /Models/Buildings/WallSegment.cs
+namespace UrbanChaosMapEditor.Models
 {
     public enum WallKind
     {

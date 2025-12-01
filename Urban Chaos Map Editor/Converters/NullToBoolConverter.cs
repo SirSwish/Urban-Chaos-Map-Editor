@@ -1,4 +1,5 @@
-﻿using System;
+﻿// /Converters/NullToBoolConverter.cs
+using System;
 using System.Globalization;
 using System.Windows.Data;
 

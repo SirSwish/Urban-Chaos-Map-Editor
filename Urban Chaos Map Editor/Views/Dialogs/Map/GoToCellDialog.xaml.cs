@@ -1,4 +1,5 @@
-﻿using System.Text.RegularExpressions;
+﻿// /Views/Dialogs/Map/GoToCellDialog.xaml.cs
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Input;
 

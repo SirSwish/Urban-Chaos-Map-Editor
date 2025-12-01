@@ -1,4 +1,5 @@
-﻿using System;
+﻿// /Models/Objects/PrimFlags.cs
+using System;
 
 namespace UrbanChaosMapEditor.Models
 {

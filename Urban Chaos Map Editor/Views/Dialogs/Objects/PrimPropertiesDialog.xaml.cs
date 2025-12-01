@@ -1,4 +1,5 @@
-﻿using System.Windows;
+﻿// /Views/Dialogs/Objects/PrimPropertiesDialog.xaml.cs
+using System.Windows;
 
 namespace UrbanChaosMapEditor.Views
 {

@@ -1,4 +1,6 @@
-﻿using System;
+﻿// /Services/Accessors/StyleAccessor.cs
+
+using System;
 using System.Collections.Generic;
 using UrbanChaosMapEditor.Models.Styles;
 using UrbanChaosMapEditor.Services.DataServices;

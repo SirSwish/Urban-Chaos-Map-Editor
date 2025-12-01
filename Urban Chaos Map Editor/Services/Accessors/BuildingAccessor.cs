@@ -20,7 +20,7 @@ namespace UrbanChaosMapEditor.Services
         private const int AfterBuildingsPad = 14;
 
         public const int DFacetSize = 26; // expose for callers
-        private const int DStoreyRecSize = 6;  // U16 StyleIndex; U16 PaintIndex; U16 Count
+        private const int DStoreyRecSize = 6;  // U16 Style; U16 PaintIndex; SBYTE Count; UBYTE pad
 
         public BuildingsAccessor(MapDataService svc)
         {
@@ -199,7 +199,7 @@ namespace UrbanChaosMapEditor.Services
                 }
             }
 
-            // ---- dstoreys (U16 Style; U16 PaintIndex; U16 Count) ----
+            // ---- dstoreys (DStorey[nextDStorey]) ----
             var storeys = Array.Empty<BuildingArrays.DStoreyRec>();
             if (saveType >= 17 && nextDStorey > 0)
             {
@@ -211,10 +211,13 @@ namespace UrbanChaosMapEditor.Services
                     for (int i = 0; i < nextDStorey; i++)
                     {
                         int off = (int)(cursor + i * DStoreyRecSize);
+
                         ushort style = ReadU16(bytes, off + 0);
                         ushort index = ReadU16(bytes, off + 2);
-                        ushort count = ReadU16(bytes, off + 4);
-                        storeys[i] = new BuildingArrays.DStoreyRec(style, index, count);
+                        sbyte count = unchecked((sbyte)bytes[off + 4]); // signed, matches SBYTE
+                        byte padding = bytes[off + 5];
+
+                        storeys[i] = new BuildingArrays.DStoreyRec(style, index, count, padding);
                     }
                     cursor = storeyEnd;
                 }

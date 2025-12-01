@@ -1,4 +1,5 @@
-﻿using System.Windows;
+﻿// /Views/MapOverlays/GridLinesLayer.cs
+using System.Windows;
 using System.Windows.Media;
 using UrbanChaosMapEditor.Models;
 

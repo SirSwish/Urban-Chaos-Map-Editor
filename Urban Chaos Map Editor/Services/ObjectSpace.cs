@@ -1,4 +1,5 @@
-﻿// File: Models/ObjectSpace.cs
+﻿// /Services/ObjectSpace.cs
+// File: Models/ObjectSpace.cs
 using System;
 
 namespace UrbanChaosMapEditor.Models

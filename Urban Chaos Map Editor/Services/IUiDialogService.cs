@@ -1,4 +1,5 @@
-﻿namespace UrbanChaosMapEditor.Services
+﻿// /Services/IUiDialogService.cs
+namespace UrbanChaosMapEditor.Services
 {
     public interface IUiDialogService
     {

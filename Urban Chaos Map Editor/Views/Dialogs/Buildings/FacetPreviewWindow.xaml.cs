@@ -1,4 +1,5 @@
-﻿using System;
+﻿// /Views/Dialogs/Buildings/FacetPreviewWindow.xaml.cs
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -101,6 +102,34 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             yield return Make("FenceCut", FacetFlags.FenceCut);
         }
 
+        private void DebugDumpStyleRow(int rawStyleId)
+        {
+            var tma = StyleDataService.Instance.TmaSnapshot;
+            if (tma == null)
+            {
+                Debug.WriteLine($"[StyleDump] style.tma not loaded.");
+                return;
+            }
+
+            int idx = StyleDataService.MapRawStyleIdToTmaIndex(rawStyleId);
+            if (idx < 0 || idx >= tma.TextureStyles.Count)
+            {
+                Debug.WriteLine($"[StyleDump] Raw style {rawStyleId} -> index {idx} out of range.");
+                return;
+            }
+
+            var style = tma.TextureStyles[idx];
+            Debug.WriteLine($"[StyleDump] Raw style {rawStyleId} (TMA row {idx}), entries={style.Entries.Count}");
+
+            for (int i = 0; i < style.Entries.Count; i++)
+            {
+                var e = style.Entries[i];
+                int globalIndex = e.Page * 64 + e.Ty * 8 + e.Tx;
+                Debug.WriteLine(
+                    $"  slot[{i}]: Page={e.Page} Tx={e.Tx} Ty={e.Ty} Flip={e.Flip} -> tex{globalIndex:D3}");
+            }
+        }
+
         // Hook events once items are set
         private void HookFlagEvents()
         {
@@ -150,6 +179,80 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             // Get a fresh snapshot to compute this facet's absolute byte offset
             var arrays = new BuildingsAccessor(MapDataService.Instance).ReadSnapshot();
 
+            // DEBUG: dump style chain + DStorey for this facet
+            try
+            {
+                var styles = arrays.Styles ?? Array.Empty<short>();
+                var storeys = arrays.Storeys ?? Array.Empty<BuildingArrays.DStoreyRec>();
+                var paintMem = arrays.PaintMem ?? Array.Empty<byte>();
+
+                Debug.WriteLine("===== PAINT DEBUG FOR FACET =====");
+                Debug.WriteLine($"FacetId1={_facetIndex1}  Facet.StyleIndex={_facet.StyleIndex}  Height={_facet.Height}  FHeight={_facet.FHeight}");
+                Debug.WriteLine($"FacetFlags=0x{(ushort)_facet.Flags:X4}  Type={_facet.Type}");
+
+                // 1) What does dstyles look like around this facet?
+                int baseIdx = _facet.StyleIndex;
+                int span = 8;   // dump a small window
+                for (int i = 0; i < span; i++)
+                {
+                    int idx = baseIdx + i;
+                    if (idx < 0 || idx >= styles.Length) break;
+                    short val = styles[idx];
+
+                    if (val >= 0)
+                    {
+                        Debug.WriteLine($"dstyles[{idx}] = {val}  (RAW style id)");
+                    }
+                    else
+                    {
+                        int sid = -val;
+                        string extra = (sid >= 1 && sid <= storeys.Length)
+                            ? $" -> DStorey[{sid}]"
+                            : " -> (OUT OF RANGE)";
+                        Debug.WriteLine($"dstyles[{idx}] = {val}  (PAINTED) {extra}");
+                    }
+                }
+
+                // 2) If the first entry is painted, dump that DStorey and its bytes
+                if (baseIdx >= 0 && baseIdx < styles.Length && styles[baseIdx] < 0)
+                {
+                    int sid = -styles[baseIdx];       // 1-based id in Fallen
+                    int sIdx = sid - 1;               // 0-based C# index
+
+                    if (sIdx >= 0 && sIdx < storeys.Length)
+                    {
+                        var ds = storeys[sIdx];
+
+                        Debug.WriteLine($"DStorey sid={sid} -> Style(base)={ds.StyleIndex}  PaintIndex={ds.PaintIndex}  Count={ds.Count}");
+
+                        if (ds.PaintIndex + ds.Count <= paintMem.Length)
+                        {
+                            var sb = new StringBuilder();
+                            for (int i = 0; i < ds.Count; i++)
+                            {
+                                if (i > 0) sb.Append(' ');
+                                sb.Append(paintMem[ds.PaintIndex + i].ToString("X2"));
+                            }
+                            Debug.WriteLine($"Paint bytes[{ds.PaintIndex}..+{ds.Count}): {sb}");
+                        }
+                        else
+                        {
+                            Debug.WriteLine($"Paint bytes out of range: idx={ds.PaintIndex} count={ds.Count} paintMemLen={paintMem.Length}");
+                        }
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"ERROR: DStorey id {sid} not in storeys[] (len={storeys.Length})");
+                    }
+                }
+
+                Debug.WriteLine("=================================");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[PaintDebug] Exception while dumping: {ex}");
+            }
+
             // You need the absolute start of the facets table from the snapshot.
             // If your snapshot type is `BuildingArrays`, add an int property like `FacetsStart` (absolute).
             _facetBaseOffset = arrays.FacetsStart + (_facetIndex1 - 1) * DFacetSize;
@@ -181,6 +284,9 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
 
             // Ensure TMA is loaded
             await EnsureStylesLoadedAsync();
+
+            DebugDumpStyleRow(11);
+            DebugDumpStyleRow(12);
 
             // Style resolve summary (RAW vs PAINTED) + recipe text
             SummarizeStyleAndRecipe(_facet);
@@ -376,6 +482,8 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
 
         // Build the 5-slot ring of tile indices (0..63) for a raw style id.
         // Each slot i uses Entries[i].Tx/Ty; we return Ty*8 + Tx for each.
+        // Build the 5-slot ring of *global* tile indices (texNNN) for a raw style id.
+        // Each slot i uses Entries[i].(Page,Tx,Ty); we return Page*64 + Ty*8 + Tx for each.
         private bool GetStyleRing(int rawStyleId, out int[] ring, out IList<StyleTextureEntry> entries)
         {
             ring = Array.Empty<int>();
@@ -389,19 +497,24 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
 
             var style = tma.TextureStyles[idx];
             entries = style.Entries;
-
             if (entries == null || entries.Count < 5) return false;
 
-            // Precompute the ring (absolute 0..63 atlas index from (Tx,Ty))
             var r = new int[5];
             for (int i = 0; i < 5; i++)
             {
                 var e = entries[i];
-                r[i] = (e.Ty * 8 + e.Tx) & 63;
+
+                // Global tex index NNN, matching texNNNhi.png
+                int indexInPage = e.Ty * 8 + e.Tx;      // 0..63 within the 8×8 page
+                int globalIndex = e.Page * 64 + indexInPage;
+
+                r[i] = globalIndex;
             }
+
             ring = r;
             return true;
         }
+
 
 
         [MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
@@ -410,77 +523,319 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
         [MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         private static int Mod64(int x) => (x & 63);
 
-        // Resolve the final (page, tx, ty, flip) for a given panel (col,row).
-        // Implements the rules:
-        //  - If multi-row and row==0 → CAP row = (baseStyle-1) normalized; ignore paint bytes.
-        //  - Otherwise (raw): use base style, slot = col%5, direct.
-        //  - Otherwise (painted): seeds wrap across columns; under-cap row uses seed;
-        //    rows further down add the ring delta: seed + (ring[slot]-ring[slot0]) mod 64.
-        // Returns false if we can't resolve from TMA (stays grey).
-        private bool TryResolvePanelTile(int col, int row, int panelsDown,
-                                  out byte page, out byte tx, out byte ty, out byte flip)
+        /// <summary>
+        /// Resolve (page, tx, ty, flip) for one cell of the facet preview.
+        /// col: 0..panelsAcross-1
+        /// rowFromBottom: 0 = ground row, panelsDown-1 = top row
+        /// </summary>
+        private bool TryResolvePanelTile(int col, int rowFromBottom, int panelsAcross, int panelsDown,
+                                         out byte page, out byte tx, out byte ty, out byte flip)
         {
             page = tx = ty = flip = 0;
 
-            // Base (raw or painted)
-            if (!TryResolveBase(_facet.StyleIndex, out int baseStyleId, out bool isPainted, out var ds))
+            if (_dstyles == null || _dstyles.Length == 0)
+                return false;
+            if (rowFromBottom < 0 || rowFromBottom >= panelsDown)
                 return false;
 
-            // Cap rule: if there are >1 rows, top row is cap = (base-1), unpainted
-            bool hasCap = panelsDown > 1;
-            if (hasCap && row == 0)
+            // --- Match FACET_draw's style_index stepping ---
+            bool twoTextured = (_facet.Flags & FacetFlags.TwoTextured) != 0;
+            bool twoSided = (_facet.Flags & FacetFlags.TwoSided) != 0;
+            bool hugFloor = (_facet.Flags & FacetFlags.HugFloor) != 0;
+
+            int styleIndexStep = (!hugFloor && (twoTextured || twoSided)) ? 2 : 1;
+
+            int styleIndexStart = _facet.StyleIndex;
+            if (twoTextured)
+                styleIndexStart--;   // FACET_draw does this
+
+            // ----- Row remap for painted section -----
+            // We treat the top row (rowFromBottom == panelsDown-1) as the cap row and
+            // leave it alone. The painted rows are [0 .. paintedRows-1].
+            int paintedRows = Math.Max(0, panelsDown - 1);
+
+            int styleRow = rowFromBottom;
+
+            if (paintedRows > 0 && rowFromBottom < paintedRows)
             {
-                int capStyle = NormalizeStyleId(baseStyleId - 1);
-                if (!GetStyleRing(capStyle, out var capRing, out var capEntries)) return false;
-
-                int slot0 = col % 5;
-                var e = capEntries[slot0];
-
-                page = e.Page;                 // cap uses its own page (no paint override)
-                flip = e.Flip;
-
-                int idxInPage = capRing[slot0];
-                tx = (byte)(idxInPage % 8);
-                ty = (byte)(idxInPage / 8);
-                return true;
+                // Rotate the painted rows by +1:
+                //   desired row 0 uses former row 1's style,
+                //   desired row 1 uses former row 2's style,
+                //   desired row 2 uses former row 3's style,
+                //   desired row 3 uses former row 0's style, etc.
+                styleRow = (rowFromBottom + 1) % paintedRows;
             }
+            // else: top cap row or non-painted case → use rowFromBottom as-is.
 
-            // Below the cap: either RAW or PAINTED-under-cap
-            int rowBelowCap = hasCap ? row - 1 : row;
-            if (!GetStyleRing(baseStyleId, out var ring, out var entries)) return false;
+            int styleIndexForRow = styleIndexStart + styleRow * styleIndexStep;
+            if (styleIndexForRow < 0 || styleIndexForRow >= _dstyles.Length)
+                return false;
 
-            int slot0Col = col % 5;                   // reference slot per column
-            int slot = (slot0Col + rowBelowCap) % 5;
+            short dval = _dstyles[styleIndexForRow];
 
-            var eSlot = entries[slot];
-            flip = eSlot.Flip;
+            int count = panelsAcross + 1;   // like Fallen: segments+1
+            int pos = col;                // horizontal segment index
 
-            if (!isPainted)
+            // Fallen-like core resolver: raw vs painted.
+            if (!TryResolveTileIdForCell(dval, pos, count, out int tileId, out byte flipFlag))
+                return false;
+
+            if (tileId < 0)
+                return false;
+
+            // Map tileId -> hi-res (page, tx, ty) so texNNNhi uses N = tileId.
+            int hiPage = tileId / 64;
+            int idxInPage = tileId % 64;
+
+            page = (byte)hiPage;
+            tx = (byte)(idxInPage % 8);
+            ty = (byte)(idxInPage / 8);
+            flip = flipFlag;
+
+            return true;
+        }
+
+        /// <summary>
+        /// Core Fallen-like resolve: given a dstyles entry value (raw or painted),
+        /// and horizontal pos/count, compute the global texture id ("tileId") and flip flag.
+        /// This emulates the C code paths in texture_quad/get_texture_page:
+        ///   - texture_style &lt; 0 → DStorey + paint_mem bytes
+        ///   - texture_style ≥ 0 → raw style → style.tma
+        /// </summary>
+        private bool TryResolveTileIdForCell(short dstyleValue, int pos, int count,
+                                             out int tileId, out byte flip)
+        {
+            tileId = -1;
+            flip = 0;
+
+            if (dstyleValue >= 0)
             {
-                // RAW: page comes from style entry
-                page = eSlot.Page;
+                // RAW style.
+                return ResolveRawTileId(dstyleValue, pos, count, out tileId, out flip);
             }
             else
             {
-                // PAINTED: page override comes from paint bytes (lower 7 bits), one byte per column (wrap)
-                var bytes = GetPaintBytes(ds);
-                if (bytes.Length > 0)
-                {
-                    int seedIndex = col % bytes.Length;
-                    byte paintByte = bytes[seedIndex];
-                    page = (byte)(paintByte & 0x7F);
-                }
-                else
-                {
-                    // No paint bytes? fall back to style page.
-                    page = eSlot.Page;
-                }
+                // PAINTED: negative DStorey id (1-based).
+                int storeyId = -dstyleValue;  // 1-based
+                if (_storeys == null || storeyId < 1 || storeyId > _storeys.Length)
+                    return false;
+
+                var ds = _storeys[storeyId - 1];
+                return ResolvePaintedTileId(ds, pos, count, out tileId, out flip);
+            }
+        }
+
+        /// <summary>
+        /// Resolve RAW style: use style.tma row for 'rawStyleId' and map TEXTURE_PIECE to a slot.
+        /// We then compute a global tileId = Page*64 + Ty*8 + Tx.
+        /// </summary>
+        private bool ResolveRawTileId(int rawStyleId, int pos, int count,
+                                      out int tileId, out byte flip)
+        {
+            tileId = -1;
+            flip = 0;
+
+            var tma = StyleDataService.Instance.TmaSnapshot;
+            if (tma == null)
+                return false;
+
+            int styleId = rawStyleId;
+            if (styleId <= 0)
+                styleId = 1;   // Fallen: if(texture_style==0) texture_style=1
+
+            int idx = StyleDataService.MapRawStyleIdToTmaIndex(styleId);
+            if (idx < 0 || idx >= tma.TextureStyles.Count)
+                return false;
+
+            var style = tma.TextureStyles[idx];
+            var entries = style.Entries;
+            if (entries == null || entries.Count == 0)
+                return false;
+
+            // TEXTURE_PIECE mapping (deterministic, no randomness):
+            // pos == 0       → RIGHT
+            // pos == count-2 → LEFT
+            // otherwise      → MIDDLE
+            // We map:
+            //   RIGHT  → slot 0
+            //   LEFT   → slot 1
+            //   MIDDLE → slot 2
+            int pieceIndex;
+            if (pos == 0)
+                pieceIndex = 0;        // RIGHT
+            else if (pos == count - 2)
+                pieceIndex = 1;        // LEFT
+            else
+                pieceIndex = 2;        // MIDDLE
+
+            if (pieceIndex >= entries.Count)
+                pieceIndex = entries.Count - 1;
+
+            var e = entries[pieceIndex];
+
+            // Global "tile id" like original 'page' in older engines.
+            tileId = e.Page * 64 + e.Ty * 8 + e.Tx;
+            flip = e.Flip;
+            return true;
+        }
+
+        /// <summary>
+        /// PAINTED: use DStorey + paint_mem bytes.
+        /// Mirrors texture_quad / get_texture_page semantics:
+        ///   - b = paint_mem[Index + pos]
+        ///   - bit7 = flip; low 7 bits = texture index (0..127)
+        ///   - 0 => "no paint" → fall back to base style.
+        /// </summary>
+        private bool ResolvePaintedTileId(BuildingArrays.DStoreyRec ds,
+                                          int pos, int count,
+                                          out int tileId, out byte flip)
+        {
+            tileId = -1;
+            flip = 0;
+
+            int baseStyle = ds.StyleIndex;
+
+            if (_paintMem == null || _paintMem.Length == 0 || ds.Count == 0)
+            {
+                // No paint bytes at all → act like RAW base style.
+                return ResolveRawTileId(baseStyle, pos, count, out tileId, out flip);
             }
 
-            // Tile inside that page = style ring entry
-            int idxInPage2 = ring[slot];              // 0..63
-            tx = (byte)(idxInPage2 % 8);
-            ty = (byte)(idxInPage2 / 8);
+            int paintStart = ds.PaintIndex;
+            int paintCount = ds.Count;
+
+            if (paintStart < 0 || paintStart + paintCount > _paintMem.Length)
+            {
+                // Corrupt / out of range → fall back to base.
+                return ResolveRawTileId(baseStyle, pos, count, out tileId, out flip);
+            }
+
+            if (pos >= paintCount)
+            {
+                // Above painted range: "else texture_style = p_storey->Style"
+                return ResolveRawTileId(baseStyle, pos, count, out tileId, out flip);
+            }
+
+            byte raw = _paintMem[paintStart + pos];
+
+            // High bit = flip X
+            flip = (byte)(((raw & 0x80) != 0) ? 1 : 0);
+
+            // Low 7 bits = "page"/texture index 0..127
+            int val = raw & 0x7F;
+
+            if (val == 0)
+            {
+                // 0 means "no paint" → use base style.
+                return ResolveRawTileId(baseStyle, pos, count, out tileId, out flip);
+            }
+
+            // Here 'val' is the global texture id we want (e.g. 10, 15, 16, 17).
+            tileId = val;
+            return true;
+        }
+
+        /// <summary>
+        /// RAW style: use style.tma mapping for (styleId, texturePiece).
+        /// texturePiece: 0 = RIGHT, 1 = LEFT, 2 = MIDDLE.
+        /// We map to slots: 0→0, 1→1, 2→2 (MIDDLE family).
+        /// </summary>
+        private bool ResolveRawTile(int rawStyleId, int texturePiece,
+                                    out byte page, out byte tx, out byte ty, out byte flip)
+        {
+            page = tx = ty = flip = 0;
+
+            // Map piece → slot index in TMA row.
+            int slot = texturePiece switch
+            {
+                0 => 0, // RIGHT
+                1 => 1, // LEFT
+                _ => 2  // MIDDLE/M1/M2 family
+            };
+
+            if (!TryGetTmaEntry(rawStyleId, slot, out StyleTextureEntry entry))
+                return false;
+
+            page = (byte)entry.Page;
+            tx = (byte)entry.Tx;
+            ty = (byte)entry.Ty;
+            flip = (byte)entry.Flip;
+            return true;
+        }
+
+        /// <summary>
+        /// PAINTED: we have a DStorey row with base StyleIndex + paint_mem bytes.
+        /// We mimic Fallen texture_quad/get_texture_page:
+        ///   - Take paint byte for this column (wrapping across Count).
+        ///   - Bit 7 = flip X; low 7 bits = "page" override.
+        ///   - If low 7 bits == 0 → fall back to base style.
+        /// For our hi-res tiles we:
+        ///   - Use 'pageOverride' (if non-zero) as the PAGE,
+        ///   - Use base style's Tx/Ty as the tile inside that page,
+        ///   - XOR flip from base style with paint flip bit.
+        /// </summary>
+        private bool ResolvePaintedTile(BuildingArrays.DStoreyRec ds,
+                                        int texturePiece, int col, int panelsAcross,
+                                        out byte page, out byte tx, out byte ty, out byte flip)
+        {
+            page = tx = ty = flip = 0;
+
+            // Base style from DStorey
+            int baseStyleId = ds.StyleIndex;
+            if (baseStyleId <= 0)
+                baseStyleId = 1;
+
+            // Get base entry from style.tma for orientation and Tx/Ty.
+            if (!ResolveRawTile(baseStyleId, texturePiece, out byte basePage, out byte baseTx, out byte baseTy, out byte baseFlip))
+                return false;
+
+            byte finalPage = basePage;
+            byte finalTx = baseTx;
+            byte finalTy = baseTy;
+            byte finalFlip = baseFlip;
+
+            // No paint_mem or zero count -> behave like RAW base style.
+            if (_paintMem == null || _paintMem.Length == 0 || ds.Count == 0)
+            {
+                page = finalPage; tx = finalTx; ty = finalTy; flip = finalFlip;
+                return true;
+            }
+
+            int paintStart = ds.PaintIndex;
+            int paintCount = ds.Count;
+
+            if (paintStart < 0 || paintStart + paintCount > _paintMem.Length)
+            {
+                // Corrupt indices; fall back to base.
+                page = finalPage; tx = finalTx; ty = finalTy; flip = finalFlip;
+                return true;
+            }
+
+            // Fallen uses 'pos' horizontally; we clamp/wrap across Count.
+            int paintIx = paintStart + (col % paintCount);
+            byte paintByte = _paintMem[paintIx];
+
+            byte paintFlip = (byte)((paintByte & 0x80) != 0 ? 1 : 0);
+            byte paintPage = (byte)(paintByte & 0x7F);
+
+            if (paintPage == 0)
+            {
+                // "no paint" for this column → base style only.
+                page = finalPage;
+                tx = finalTx;
+                ty = finalTy;
+                flip = finalFlip;
+                return true;
+            }
+
+            // Painted: override PAGE but keep Tx/Ty from base style.
+            finalPage = paintPage;
+            finalFlip = (byte)(finalFlip ^ paintFlip); // XOR base flip with paint flip bit
+
+            page = finalPage;
+            tx = finalTx;
+            ty = finalTy;
+            flip = finalFlip;
             return true;
         }
 
@@ -533,26 +888,52 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             PanelCanvas.Width = width; PanelCanvas.Height = height;
             GridCanvas.Width = width; GridCanvas.Height = height;
 
-            for (int row = 0; row < panelsDown; row++)
+            for (int rowFromTop = 0; rowFromTop < panelsDown; rowFromTop++)
             {
+                // Engine logic is bottom-up. Convert UI row → "engine row".
+                int rowFromBottom = panelsDown - 1 - rowFromTop;
+
                 for (int col = 0; col < panelsAcross; col++)
                 {
-                    if (TryResolvePanelTile(col, row, panelsDown, out byte page, out byte tx, out byte ty, out byte flip) &&
-                        TryLoadTileBitmap(page, tx, ty, flip, out var bmp))
+                    if (TryResolvePanelTile(col, rowFromBottom, panelsAcross, panelsDown,
+                                            out byte page, out byte tx, out byte ty, out byte flip))
                     {
+                        int tileId = page * 64 + ty * 8 + tx;   // global tile id
+                        string tooltipText = $"tex{tileId:D3}hi";
+
 #if DEBUG
-                        int totalIndex = page * 64 + ty * 8 + tx;
-                        Debug.WriteLine($"[FacetPreview] r={row} c={col} pd={panelsDown} -> page={page} tx={tx} ty={ty} flip={flip} (tex{totalIndex:D3}hi.png)");
+                        Debug.WriteLine(
+                            $"[FacetPreview] r(bottom)={rowFromBottom} c={col} pd={panelsDown} " +
+                            $"-> page={page} tx={tx} ty={ty} flip={flip} (tileId={tileId}, {tooltipText}.png)");
 #endif
-                        var img = new System.Windows.Controls.Image
+
+                        if (TryLoadTileBitmap(page, tx, ty, flip, out var bmp))
                         {
-                            Width = PanelPx,
-                            Height = PanelPx,
-                            Source = bmp
-                        };
-                        System.Windows.Controls.Canvas.SetLeft(img, col * PanelPx);
-                        System.Windows.Controls.Canvas.SetTop(img, row * PanelPx);
-                        PanelCanvas.Children.Add(img);
+                            var img = new System.Windows.Controls.Image
+                            {
+                                Width = PanelPx,
+                                Height = PanelPx,
+                                Source = bmp,
+                                ToolTip = tooltipText
+                            };
+
+                            Canvas.SetLeft(img, col * PanelPx);
+                            Canvas.SetTop(img, rowFromTop * PanelPx);
+                            PanelCanvas.Children.Add(img);
+                        }
+                        else
+                        {
+                            var rect = new System.Windows.Shapes.Rectangle
+                            {
+                                Width = PanelPx,
+                                Height = PanelPx,
+                                Fill = new SolidColorBrush(Color.FromRgb(0x55, 0x58, 0x5E)),
+                                ToolTip = tooltipText
+                            };
+                            Canvas.SetLeft(rect, col * PanelPx);
+                            Canvas.SetTop(rect, rowFromTop * PanelPx);
+                            PanelCanvas.Children.Add(rect);
+                        }
                     }
                     else
                     {
@@ -560,14 +941,16 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
                         {
                             Width = PanelPx,
                             Height = PanelPx,
-                            Fill = new SolidColorBrush(Color.FromRgb(0x55, 0x58, 0x5E))
+                            Fill = new SolidColorBrush(Color.FromRgb(0x55, 0x58, 0x5E)),
+                            ToolTip = "(no tile)"
                         };
-                        System.Windows.Controls.Canvas.SetLeft(rect, col * PanelPx);
-                        System.Windows.Controls.Canvas.SetTop(rect, row * PanelPx);
+                        Canvas.SetLeft(rect, col * PanelPx);
+                        Canvas.SetTop(rect, rowFromTop * PanelPx);
                         PanelCanvas.Children.Add(rect);
 
 #if DEBUG
-                        Debug.WriteLine($"[FacetPreview] resolve/load failed r={row} c={col} pd={panelsDown}");
+                        Debug.WriteLine(
+                            $"[FacetPreview] resolve failed r(bottom)={rowFromBottom} c={col} pd={panelsDown}");
 #endif
                     }
                 }
@@ -585,6 +968,8 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             };
             GridCanvas.Children.Add(outline);
         }
+
+
         private bool TryResolveVariantAndWorld(out string? variant, out int world)
         {
             variant = null;
@@ -637,6 +1022,35 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
                 System.Diagnostics.Debug.WriteLine($"[FacetPreview] TryResolveVariantAndWorld: exception: {ex.Message}");
                 return false;
             }
+        }
+
+        // Resolve a raw style id (style.tma row) for a given column.
+        // We *ignore* vertical row for raw styles (walls are vertically uniform).
+        private bool ResolveRawFromStyle(int rawStyleId, int col,
+                                         out byte page, out byte tx, out byte ty, out byte flip)
+        {
+            page = tx = ty = flip = 0;
+
+            rawStyleId = NormalizeStyleId(rawStyleId);
+            if (!GetStyleRing(rawStyleId, out var ring, out var entries))
+                return false;
+
+            int ringLen = ring.Length;
+            if (ringLen <= 0 || entries.Count < ringLen)
+                return false;
+
+            // Approximate Fallen’s RIGHT/LEFT/MIDDLE selection with a simple horizontal cycle.
+            int slot = col % ringLen;
+
+            var e = entries[slot];
+            flip = e.Flip;
+            page = e.Page;
+
+            int idxInPage = ring[slot];   // 0..63
+            tx = (byte)(idxInPage & 7);
+            ty = (byte)(idxInPage >> 3);
+
+            return true;
         }
 
         private static void DrawGrid(System.Windows.Controls.Canvas c, int width, int height, int stepX, int stepY)
@@ -777,6 +1191,14 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             return true;
         }
 
+        private static void DecomposeEnginePage(int enginePage, out byte page, out byte tx, out byte ty)
+        {
+            int idx = enginePage & 63;      // 0..63 within “page”
+            page = (byte)(enginePage >> 6);
+            tx = (byte)(idx & 7);
+            ty = (byte)(idx >> 3);
+        }
+
 
         private bool TryLoadTileBitmap(byte page, byte tx, byte ty, byte flip, out BitmapSource? bmp)
         {
@@ -788,12 +1210,7 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
                 return false;
             }
 
-            // Decide candidate subfolders from the page
-            // Primary mapping (legacy):
-            //   0..3  → worldX
-            //   4..7  → shared
-            //   8     → worldX/insides
-            // Allow higher pages as worldX as a best-effort fallback.
+            // Decide candidate subfolders from the *page index* as before.
             var candidates = new List<string>(3);
             if (page <= 3)
                 candidates.Add($"world{_worldNumber}");
@@ -804,12 +1221,22 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             else
                 candidates.Add($"world{_worldNumber}");   // permissive fallback
 
-            int indexInPage = ty * 8 + tx;
-            int totalIndex = page * 64 + indexInPage;
+            int totalIndex;
+
+            // Sentinel: tx==255 && ty==255 means "page is already the global texNNN index".
+            if (tx == byte.MaxValue && ty == byte.MaxValue)
+            {
+                totalIndex = page;
+            }
+            else
+            {
+                int indexInPage = ty * 8 + tx;
+                totalIndex = page * 64 + indexInPage;
+            }
 
             foreach (var subfolder in candidates)
             {
-                foreach (var packUri in EnumerateTilePackUris(_variant!, subfolder!, page, tx, ty))
+                foreach (var packUri in EnumerateTilePackUris(_variant!, subfolder!, totalIndex))
                 {
                     Debug.WriteLine($"[FacetPreview] Tile pack URI: {packUri}");
                     try
@@ -851,9 +1278,8 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
         }
 
 
-        private IEnumerable<string> EnumerateTilePackUris(string variant, string subfolder, byte page, byte tx, byte ty)
+        private IEnumerable<string> EnumerateTilePackUris(string variant, string subfolder, int totalIndex)
         {
-            int totalIndex = page * 64 + ty * 8 + tx;
             yield return $"pack://application:,,,/Assets/Textures/{variant}/{subfolder}/tex{totalIndex:D3}hi.png";
         }
 

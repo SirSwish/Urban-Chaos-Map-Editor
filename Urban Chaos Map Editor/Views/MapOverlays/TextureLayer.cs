@@ -1,4 +1,5 @@
-﻿using System;
+﻿// /Views/MapOverlays/TextureLayer.cs
+using System;
 using System.Windows;
 using System.Windows.Media;
 using UrbanChaosMapEditor.Models;

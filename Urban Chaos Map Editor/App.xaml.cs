@@ -1,4 +1,5 @@
-﻿using System.Windows;
+﻿// /App.xaml.cs
+using System.Windows;
 using UrbanChaosMapEditor.Services;
 using UrbanChaosMapEditor.Services.Textures;
 using UrbanChaosMapEditor.ViewModels;
