@@ -573,8 +573,46 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
 
             short dval = _dstyles[styleIndexForRow];
 
+#if DEBUG
+            // Row-level debug: which dstyles entry / DStorey is being used for this cell?
+            if (dval < 0)
+            {
+                int sid = -dval;
+                int dsIndex = sid - 1;
+                if (_storeys != null && dsIndex >= 0 && dsIndex < _storeys.Length)
+                {
+                    var ds = _storeys[dsIndex];
+                    var bytes = GetPaintBytes(ds);
+                    string hex = ToHexLine(bytes);
+
+                    Debug.WriteLine(
+                        $"[PaintRowDebug] facet={_facetIndex1} col={col} rowBottom={rowFromBottom} " +
+                        $"panelsAcross={panelsAcross} panelsDown={panelsDown} " +
+                        $"styleStart={styleIndexStart} styleRow={styleRow} styleIdxRow={styleIndexForRow} " +
+                        $"dstyles[{styleIndexForRow}]={dval} (PAINTED sid={sid} baseStyle={ds.StyleIndex} " +
+                        $"paintIndex={ds.PaintIndex} count={ds.Count} bytes={hex})");
+                }
+                else
+                {
+                    Debug.WriteLine(
+                        $"[PaintRowDebug] facet={_facetIndex1} col={col} rowBottom={rowFromBottom} " +
+                        $"panelsAcross={panelsAcross} panelsDown={panelsDown} " +
+                        $"styleStart={styleIndexStart} styleRow={styleRow} styleIdxRow={styleIndexForRow} " +
+                        $"dstyles[{styleIndexForRow}]={dval} (PAINTED sid={sid} but storey out of range)");
+                }
+            }
+            else
+            {
+                Debug.WriteLine(
+                    $"[PaintRowDebug] facet={_facetIndex1} col={col} rowBottom={rowFromBottom} " +
+                    $"panelsAcross={panelsAcross} panelsDown={panelsDown} " +
+                    $"styleStart={styleIndexStart} styleRow={styleRow} styleIdxRow={styleIndexForRow} " +
+                    $"dstyles[{styleIndexForRow}]={dval} (RAW)");
+            }
+#endif
+
             int count = panelsAcross + 1;   // like Fallen: segments+1
-            int pos = col;                // horizontal segment index
+            int pos = (panelsAcross - 1 - col);      // RIGHT-most first, then leftwards
 
             // Fallen-like core resolver: raw vs painted.
             if (!TryResolveTileIdForCell(dval, pos, count, out int tileId, out byte flipFlag))
@@ -586,11 +624,19 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             // Map tileId -> hi-res (page, tx, ty) so texNNNhi uses N = tileId.
             int hiPage = tileId / 64;
             int idxInPage = tileId % 64;
+            int txInt = idxInPage % 8;
+            int tyInt = idxInPage / 8;
 
             page = (byte)hiPage;
-            tx = (byte)(idxInPage % 8);
-            ty = (byte)(idxInPage / 8);
+            tx = (byte)txInt;
+            ty = (byte)tyInt;
             flip = flipFlag;
+
+#if DEBUG
+            Debug.WriteLine(
+                $"[PaintCellResult] facet={_facetIndex1} col={col} rowBottom={rowFromBottom} " +
+                $"dstyle={dval} -> tileId={tileId} (tex{tileId:D3}) page={page} tx={tx} ty={ty} flip={flip}");
+#endif
 
             return true;
         }
@@ -608,20 +654,58 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             tileId = -1;
             flip = 0;
 
+#if DEBUG
+            Debug.WriteLine(
+                $"[PaintCellEnter] facet={_facetIndex1} pos={pos} count={count} dstyle={dstyleValue}");
+#endif
+
             if (dstyleValue >= 0)
             {
                 // RAW style.
-                return ResolveRawTileId(dstyleValue, pos, count, out tileId, out flip);
+                bool ok = ResolveRawTileId(dstyleValue, pos, count, out tileId, out flip);
+
+#if DEBUG
+                Debug.WriteLine(
+                    $"[PaintCellRaw] facet={_facetIndex1} pos={pos} count={count} " +
+                    $"style={dstyleValue} -> ok={ok} tileId={tileId} flip={flip}");
+#endif
+                return ok;
             }
             else
             {
                 // PAINTED: negative DStorey id (1-based).
                 int storeyId = -dstyleValue;  // 1-based
+
                 if (_storeys == null || storeyId < 1 || storeyId > _storeys.Length)
+                {
+#if DEBUG
+                    Debug.WriteLine(
+                        $"[PaintCellPainted] facet={_facetIndex1} pos={pos} count={count} " +
+                        $"sid={storeyId} OUT OF RANGE (storeys={_storeys?.Length ?? 0})");
+#endif
                     return false;
+                }
 
                 var ds = _storeys[storeyId - 1];
-                return ResolvePaintedTileId(ds, pos, count, out tileId, out flip);
+
+#if DEBUG
+                var bytes = GetPaintBytes(ds);
+                string hex = ToHexLine(bytes);
+                Debug.WriteLine(
+                    $"[PaintCellPainted] facet={_facetIndex1} pos={pos} count={count} " +
+                    $"sid={storeyId} baseStyle={ds.StyleIndex} paintIndex={ds.PaintIndex} " +
+                    $"ds.Count={ds.Count} bytes={hex}");
+#endif
+
+                bool ok = ResolvePaintedTileId(ds, pos, count, out tileId, out flip);
+
+#if DEBUG
+                Debug.WriteLine(
+                    $"[PaintCellPaintedResult] facet={_facetIndex1} pos={pos} count={count} " +
+                    $"sid={storeyId} -> ok={ok} tileId={tileId} flip={flip}");
+#endif
+
+                return ok;
             }
         }
 
