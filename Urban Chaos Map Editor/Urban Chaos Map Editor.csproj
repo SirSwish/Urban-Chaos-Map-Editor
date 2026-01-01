@@ -13,7 +13,10 @@
 
   <!-- 1) Remove any accidental None/Content items under Assets -->
   <ItemGroup>
+    <Compile Remove="Assets\Images\NewFolder\**" />
+    <EmbeddedResource Remove="Assets\Images\NewFolder\**" />
     <None Remove="Assets\**\*.*" />
+    <None Remove="Assets\Images\NewFolder\**" />
     <Content Remove="Assets\**\*.*" />
   </ItemGroup>
 
@@ -21,11 +24,19 @@
   <ItemGroup>
     <Resource Include="Assets\**\*.*" />
   </ItemGroup>
+  <ItemGroup>
+    <Page Remove="Assets\Images\NewFolder\**" />
+    <Resource Remove="Assets\Images\NewFolder\**" />
+  </ItemGroup>
 
   <!-- (Optional) Keep these folders visible in Solution Explorer -->
   <ItemGroup>
-    <Folder Include="Assets\Images\" />
     <Folder Include="Themes\" />
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Update="Assets\Images\PrimGraphics\199.PNG">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Resource>
   </ItemGroup>
 
 </Project>

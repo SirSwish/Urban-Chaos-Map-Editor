@@ -1,5 +1,4 @@
-﻿// /Views/MapOverlays/BuildingLayer.cs
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Media;
@@ -156,7 +155,11 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
             ClearCache();
 
             var svc = MapDataService.Instance;
-            if (!svc.IsLoaded) { Debug.WriteLine("[Buildings] Seed: no map loaded."); return; }
+            if (!svc.IsLoaded)
+            {
+                Debug.WriteLine("[Buildings] Seed: no map loaded.");
+                return;
+            }
 
             // Use cached region (preferred, includes strict finder fallback)
             svc.ComputeAndCacheBuildingRegion();
@@ -229,17 +232,39 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
                 drawn++;
             }
 
-            // ---------- Highlight pass (selected building/storey/facet from VM) ----------
-            if (_selBuildingId > 0)
+            // ---------- Highlight pass ----------
+            // 1) If a specific facet is selected, highlight it regardless of building id.
+            if (_selFacetId.HasValue)
+            {
+                int idx = _selFacetId.Value - 1;
+                if (idx >= 0 && idx < _totalFacets)
+                {
+                    int off = _facetsOffsetAbs + idx * DFacetSize;
+                    if (off + DFacetSize <= _cachedBytes.Length)
+                    {
+                        byte x0 = _cachedBytes[off + 2];
+                        byte x1 = _cachedBytes[off + 3];
+                        byte z0 = _cachedBytes[off + 8];
+                        byte z1 = _cachedBytes[off + 9];
+                        if ((x0 | x1 | z0 | z1) != 0)
+                        {
+                            var p1 = new Point((128 - x0) * 64.0, (128 - z0) * 64.0);
+                            var p2 = new Point((128 - x1) * 64.0, (128 - z1) * 64.0);
+
+                            dc.DrawLine(_glowPenWide, p1, p2);
+                            dc.DrawLine(_glowPenNarrow, p1, p2);
+                            dc.DrawLine(_edgePen, p1, p2);
+                        }
+                    }
+                }
+            }
+            // 2) Otherwise, highlight all facets in the selected building / storey.
+            else if (_selBuildingId > 0)
             {
                 for (int i = 0; i < _totalFacets; i++)
                 {
                     int off = _facetsOffsetAbs + i * DFacetSize;
                     if (off + DFacetSize > _cachedBytes.Length) break;
-
-                    // Single facet selected? Facet ids are 1-based -> (i + 1)
-                    if (_selFacetId.HasValue && (i + 1) != _selFacetId.Value)
-                        continue;
 
                     if (!FacetMatchesSelection(_cachedBytes, off, _selBuildingId, _selStoreyId))
                         continue;
@@ -253,7 +278,6 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
                     var p1 = new Point((128 - x0) * 64.0, (128 - z0) * 64.0);
                     var p2 = new Point((128 - x1) * 64.0, (128 - z1) * 64.0);
 
-                    // glow stack
                     dc.DrawLine(_glowPenWide, p1, p2);
                     dc.DrawLine(_glowPenNarrow, p1, p2);
                     dc.DrawLine(_edgePen, p1, p2);
@@ -263,12 +287,22 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
             Debug.WriteLine($"[Buildings] Render drew {drawn} facet segments.");
         }
 
-        private static bool FacetMatchesSelection(byte[] bytes, int facetAbsOffset, int selBuildingId, int? _)
+        private static bool FacetMatchesSelection(byte[] bytes, int facetAbsOffset, int selBuildingId, int? selStoreyId)
         {
-            // +14 = DBuilding index (U16, 1-based).
-            // +16 = DFacet.DStorey (used e.g. as inside-rect index for doors), NOT FStorey index.
+            // +14 = DBuilding index (U16, 1-based) or repurposed for cables.
+            // +16 = DFacet.DStorey (U16) – used as storey / painted style index.
             ushort buildingId = ReadU16(bytes, facetAbsOffset + 14);
-            return buildingId == (ushort)selBuildingId;
+            if (buildingId != (ushort)selBuildingId)
+                return false;
+
+            if (selStoreyId.HasValue)
+            {
+                ushort storeyId = ReadU16(bytes, facetAbsOffset + 16);
+                if (storeyId != (ushort)selStoreyId.Value)
+                    return false;
+            }
+
+            return true;
         }
 
         private static ushort ReadU16(byte[] b, int off)
@@ -281,8 +315,8 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
             10 or 11 or 13 => PenFenceYellow,   // Fences
             12 => PenLadderOrange,              // Ladder
             18 or 19 or 21 => PenDoorPurple,    // Doors
-            2 or 4 => PenRoofBlue,              // Roof / RoofQuad
-            15 or 16 or 17 => PenInsideGray,    // JustCollision / Partition / Inside
+            2 or 4 => PenRoofBlue,       // Roof / RoofQuad
+            15 or 16 or 17 => PenInsideGray,     // JustCollision / Partition / Inside
             _ => PenDefault
         };
     }

@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Threading;
 using UrbanChaosMapEditor.Models;
 using UrbanChaosMapEditor.Services;
 using UrbanChaosMapEditor.Services.DataServices;
@@ -99,12 +100,14 @@ namespace UrbanChaosMapEditor.ViewModels
         public ICommand SaveMapCommand { get; }
         public ICommand SaveAsMapCommand { get; }
         public ICommand ToggleGridLinesCommand { get; }
+        public ICommand ToggleBuildingsCommand { get; }
         public ICommand ToggleMapWhoCommand { get; }
         public ICommand ResetZoomCommand { get; }
         public ICommand ExitCommand { get; }
         public ICommand ToggleHeightsCommand { get; }
         public ICommand RandomizeHeightsCommand { get; }
         public ICommand ToggleTexturesCommand { get; }
+        public ICommand TogglePrimGraphicsCommand { get; }
         public ICommand ToggleObjectsCommand { get; }
         public ICommand DeletePrimCommand { get; }
         public ICommand ShowPrimPropertiesCommand { get; }
@@ -198,8 +201,10 @@ namespace UrbanChaosMapEditor.ViewModels
                     // ensure title reflects the newly-set path
                     UpdateTitle();
 
-                    // >>> Prompt to load lights (runs async; no await needed here)
-                    _ = PromptLoadLightsAfterMapLoad();
+                    // >>> Defer the lights prompt until after *all* MapLoaded subscribers have run
+                    Application.Current.Dispatcher.BeginInvoke(
+                        new Action(async () => await PromptLoadLightsAfterMapLoad()),
+                        DispatcherPriority.Background);
 
                     try
                     {
@@ -340,13 +345,13 @@ namespace UrbanChaosMapEditor.ViewModels
             // ----- View/overlay toggle commands -----
             ToggleGridLinesCommand = new RelayCommand(p =>
             {
-                if (p is bool b) Map.ShowTextures = b;    // menu click passes new checked state
+                if (p is bool b) Map.ShowGridLines = b;    // menu click passes new checked state
                 else Map.ShowGridLines = !Map.ShowGridLines; // keyboard shortcut toggles
             }, _ => true);
 
             ToggleMapWhoCommand = new RelayCommand(p =>
             {
-                if (p is bool b) Map.ShowTextures = b;    // menu click passes new checked state
+                if (p is bool b) Map.ShowMapWho = b;    // menu click passes new checked state
                 else Map.ShowMapWho = !Map.ShowMapWho; // keyboard shortcut toggles
             }, _ => true);
 
@@ -363,7 +368,7 @@ namespace UrbanChaosMapEditor.ViewModels
 
             ToggleHeightsCommand = new RelayCommand(p =>
             {
-                if (p is bool b) Map.ShowTextures = b;    // menu click passes new checked state
+                if (p is bool b) Map.ShowHeights = b;    // menu click passes new checked state
                 else Map.ShowHeights = !Map.ShowHeights; // keyboard shortcut toggles
             }, _ => true);
 
@@ -372,11 +377,21 @@ namespace UrbanChaosMapEditor.ViewModels
                 if (p is bool b) Map.ShowTextures = b;    // menu click passes new checked state
                 else Map.ShowTextures = !Map.ShowTextures; // keyboard shortcut toggles
             }, _ => true);
+            ToggleBuildingsCommand = new RelayCommand(p =>
+            {
+                if (p is bool b) Map.ShowBuildings = b;    // menu click passes new checked state
+                else Map.ShowBuildings = !Map.ShowBuildings; // keyboard shortcut toggles
+            }, _ => true);
 
             ToggleObjectsCommand = new RelayCommand(p =>
             {
                 if (p is bool b) Map.ShowObjects = b;
                 else Map.ShowObjects = !Map.ShowObjects;
+            }, _ => true);
+            TogglePrimGraphicsCommand = new RelayCommand(p =>
+            {
+                if (p is bool b) Map.ShowPrimGraphics = b;
+                else Map.ShowPrimGraphics = !Map.ShowPrimGraphics;
             }, _ => true);
 
             ToggleLightsCommand = new RelayCommand(p =>

@@ -7,12 +7,58 @@ namespace UrbanChaosMapEditor.Models
     // Stored 1-based facet range: [StartFacet .. EndFacet) for the building.
     public readonly struct DBuildingRec
     {
-        public readonly ushort StartFacet; // 1-based
-        public readonly ushort EndFacet;   // 1-based end (exclusive)
+        // World position (as stored in the map)
+        public int WorldX { get; }
+        public int WorldY { get; }
+        public int WorldZ { get; }
+
+        // 1-based facet range [StartFacet .. EndFacet)
+        public ushort StartFacet { get; }
+        public ushort EndFacet { get; }
+
+        // 1-based index into DWalkable; 0 = none
+        public ushort Walkable { get; }
+
+        public byte Counter0 { get; }
+        public byte Counter1 { get; }
+
+        // If this building is a warehouse, this is an index into WARE_ware[]
+        public byte Ware { get; }
+
+        // Raw type byte from DBuilding.Type
+        public byte Type { get; }
+
+        public bool HasWalkable => Walkable != 0;
+
+        // Old ctor kept for any callers that only cared about the facet range
         public DBuildingRec(ushort startFacet, ushort endFacet)
+            : this(0, 0, 0, startFacet, endFacet, 0, 0, 0, 0, 0)
         {
+        }
+
+        // Main ctor (used by BuildingsAccessor)
+        public DBuildingRec(
+            int worldX,
+            int worldY,
+            int worldZ,
+            ushort startFacet,
+            ushort endFacet,
+            ushort walkable,
+            byte counter0,
+            byte counter1,
+            byte ware,
+            byte type)
+        {
+            WorldX = worldX;
+            WorldY = worldY;
+            WorldZ = worldZ;
             StartFacet = startFacet;
             EndFacet = endFacet;
+            Walkable = walkable;
+            Counter0 = counter0;
+            Counter1 = counter1;
+            Ware = ware;
+            Type = type;
         }
     }
 
@@ -181,6 +227,28 @@ namespace UrbanChaosMapEditor.Models
         public int CableMode => IsCable ? FHeight : 0;
     }
 
+    public sealed class CableFacet
+    {
+        public int FacetIndex { get; init; }
+
+        // Endpoints in world coords (same units as DFacet → engine uses)
+        public int WorldX1 { get; init; }
+        public int WorldY1 { get; init; }
+        public int WorldZ1 { get; init; }
+        public int WorldX2 { get; init; }
+        public int WorldY2 { get; init; }
+        public int WorldZ2 { get; init; }
+
+        public int SegmentCount { get; init; }       // from Height
+        public short SagBase { get; init; }          // from FHeight
+        public short SagAngleDelta1 { get; init; }   // from StyleIndex
+        public short SagAngleDelta2 { get; init; }   // from Building
+
+        // Optional: raw DFacet or building index if you want round-trip editing later
+        public int BuildingIndex { get; init; }
+        public DFacetRec RawFacet { get; init; }
+    }
+
     // ----- Super-map aggregate we return from the parser -----
     public sealed class BuildingArrays
     {
@@ -203,6 +271,7 @@ namespace UrbanChaosMapEditor.Models
         //   U16 StyleIndex; U16 PaintIndex; U16 Count
         public readonly record struct DStoreyRec(ushort StyleIndex, ushort PaintIndex, sbyte Count, byte Padding);
         public DStoreyRec[] Storeys { get; init; } = Array.Empty<DStoreyRec>();
+        public CableFacet[] Cables { get; init; } = Array.Empty<CableFacet>();
 
         // Header counters as read from the block.
         public ushort NextDBuilding { get; init; }

@@ -1,6 +1,4 @@
-﻿// /ViewModels/BuildingBrowserViewModel.cs
-
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -17,27 +15,37 @@ namespace UrbanChaosMapEditor.ViewModels
 
         public ObservableCollection<BuildingVM> Buildings { get; } = new();
 
+        // NEW: flat list of all cable facets extracted from BuildingArrays.Cables
+        public ObservableCollection<CableFacetVM> Cables { get; } = new();
+
         public BuildingBrowserViewModel()
         {
             MapDataService.Instance.MapLoaded += (_, __) => Refresh();
             MapDataService.Instance.MapBytesReset += (_, __) => Refresh();
-            MapDataService.Instance.MapCleared += (_, __) => { Buildings.Clear(); };
+            MapDataService.Instance.MapCleared += (_, __) =>
+            {
+                Buildings.Clear();
+                Cables.Clear();
+            };
         }
 
         public void Refresh()
         {
             Buildings.Clear();
+            Cables.Clear();
 
             var arrays = new BuildingsAccessor(MapDataService.Instance).ReadSnapshot();
-            // guard if needed:
-            if (arrays.Facets.Length == 0 && arrays.Buildings.Length == 0)
-            {
-                // nothing to show
-                return;
-            }
             if (arrays is null) return;
 
-            // Quick index of facets per building
+            // guard if nothing at all
+            if (arrays.Facets.Length == 0 &&
+                arrays.Buildings.Length == 0 &&
+                arrays.Cables.Length == 0)
+            {
+                return;
+            }
+
+            // ----- Buildings → Storey/Facet tree (unchanged logic) -----
             // Facet ids in-file are 1-based; VM uses 0-based indices for arrays and shows 1-based IDs in UI.
             for (int b = 0; b < arrays.Buildings.Length; b++)
             {
@@ -59,6 +67,13 @@ namespace UrbanChaosMapEditor.ViewModels
                 var bvm = new BuildingVM(b + 1, br.StartFacet, br.EndFacet, facets);
                 Buildings.Add(bvm);
             }
+
+            // ----- NEW: cables list -----
+            // arrays.Cables is filled by BuildingsAccessor from DFacetRec entries of type FacetType.Cable
+            foreach (var c in arrays.Cables)
+            {
+                Cables.Add(new CableFacetVM(c));
+            }
         }
     }
 
@@ -66,7 +81,7 @@ namespace UrbanChaosMapEditor.ViewModels
     {
         public int Id { get; }
         public int StartFacet1 { get; }  // 1-based from file
-        public int EndFacet1 { get; }  // 1-based exclusive
+        public int EndFacet1 { get; }    // 1-based exclusive
         public int FacetCount { get; }
         public ObservableCollection<StoreyVM> Storeys { get; } = new();
 
@@ -144,6 +159,46 @@ namespace UrbanChaosMapEditor.ViewModels
             FHeight = f.FHeight;
             StyleIndex = f.StyleIndex;
             Flags = f.Flags;
+        }
+    }
+
+    // NEW: a simple VM to represent a single cable row in the cables list.
+    public sealed class CableFacetVM
+    {
+        public int FacetId1 { get; }
+        public int BuildingIndex { get; }
+
+        // World endpoints
+        public int WorldX1 { get; }
+        public int WorldY1 { get; }
+        public int WorldZ1 { get; }
+        public int WorldX2 { get; }
+        public int WorldY2 { get; }
+        public int WorldZ2 { get; }
+
+        public int SegmentCount { get; }
+
+        public short SagBase { get; }
+        public short SagAngleDelta1 { get; }
+        public short SagAngleDelta2 { get; }
+
+        public string Endpoints =>
+            $"({WorldX1},{WorldY1},{WorldZ1}) → ({WorldX2},{WorldY2},{WorldZ2})";
+
+        public CableFacetVM(CableFacet c)
+        {
+            FacetId1 = c.FacetIndex;
+            BuildingIndex = c.BuildingIndex;
+            WorldX1 = c.WorldX1;
+            WorldY1 = c.WorldY1;
+            WorldZ1 = c.WorldZ1;
+            WorldX2 = c.WorldX2;
+            WorldY2 = c.WorldY2;
+            WorldZ2 = c.WorldZ2;
+            SegmentCount = c.SegmentCount;
+            SagBase = c.SagBase;
+            SagAngleDelta1 = c.SagAngleDelta1;
+            SagAngleDelta2 = c.SagAngleDelta2;
         }
     }
 }

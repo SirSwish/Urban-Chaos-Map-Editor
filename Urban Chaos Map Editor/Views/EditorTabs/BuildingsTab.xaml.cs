@@ -3,6 +3,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using UrbanChaosMapEditor.Models;
 using UrbanChaosMapEditor.Services;
 using UrbanChaosMapEditor.Services.DataServices;
@@ -23,24 +24,131 @@ namespace UrbanChaosMapEditor.Views.EditorTabs
             => (DataContext as BuildingsTabViewModel)?.HandleTreeSelection(e.NewValue);
 
         // NEW: open Facet Preview window on double-click a facet row
+        // Open Facet or Building preview window on double-click in the tree
+        // Open Facet or Building preview window on double-click in the tree
         private void TreeView_OnMouseDoubleClick(object sender, MouseButtonEventArgs e)
         {
-            if ((DataContext as BuildingsTabViewModel)?.SelectedFacet is not BuildingsTabViewModel.FacetVM fvm)
+            if (e.OriginalSource is not DependencyObject dep)
                 return;
 
-            // Resolve the *actual* DFacetRec from the latest snapshot using the 1-based id
+            var tvi = FindAncestor<TreeViewItem>(dep);
+            if (tvi == null)
+                return;
+
+            var vm = DataContext as BuildingsTabViewModel;
+            if (vm == null)
+                return;
+
+            var data = tvi.DataContext;
+
+            switch (data)
+            {
+                // Double-click on a facet row → open facet preview window (unchanged)
+                case BuildingsTabViewModel.FacetVM fvm:
+                    OpenFacetPreview(fvm);
+                    e.Handled = true;
+                    break;
+            }
+        }
+
+        private void BuildingTree_OnSelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
+        {
+            if (DataContext is BuildingsTabViewModel vm)
+            {
+                vm.HandleBuildingTreeSelection(e.NewValue);
+            }
+        }
+
+        private static T? FindAncestor<T>(DependencyObject current)
+            where T : DependencyObject
+        {
+            while (current != null)
+            {
+                if (current is T wanted)
+                    return wanted;
+                current = VisualTreeHelper.GetParent(current);
+            }
+            return null;
+        }
+
+        private void OpenFacetPreview(BuildingsTabViewModel.FacetVM fvm)
+        {
             var snap = new BuildingsAccessor(MapDataService.Instance).ReadSnapshot();
             int idx0 = fvm.FacetId1 - 1;
             if (idx0 < 0 || idx0 >= snap.Facets.Length) return;
 
             var df = snap.Facets[idx0];
 
-            // NEW: pass the facet id
             var dlg = new FacetPreviewWindow(df, fvm.FacetId1)
             {
                 Owner = Application.Current.MainWindow
             };
             dlg.Show();
+        }
+
+        private void OpenBuildingPreview(BuildingsTabViewModel.BuildingVM bvm, BuildingsTabViewModel vm)
+        {
+            // Determine the 0-based index of this building in the VM
+            int idx0 = vm.Buildings.IndexOf(bvm);
+            if (idx0 < 0)
+                return;
+
+            int buildingId1 = idx0 + 1;
+
+            var snap = new BuildingsAccessor(MapDataService.Instance).ReadSnapshot();
+            if (buildingId1 < 1 || buildingId1 > snap.Buildings.Length)
+                return;
+
+            DBuildingRec building = snap.Buildings[buildingId1 - 1];
+
+            var dlg = new BuildingPreviewWindow(building, buildingId1)
+            {
+                Owner = Application.Current.MainWindow
+            };
+            dlg.Show();
+        }
+        private void OpenCablePreview(BuildingsTabViewModel.FacetVM fvm)
+        {
+            // Prefer the raw facet stored on the VM; fall back to re-reading if needed.
+            DFacetRec df = fvm.Raw;
+
+            // If Raw was ever defaulted, you could re-resolve here using facet id,
+            // but for now we assume Raw is correctly populated in the VM.
+            int facetId = fvm.FacetId1;
+
+            var dlg = new CableFacetPreviewWindow(df, facetId)
+            {
+                Owner = Application.Current.MainWindow
+            };
+            dlg.Show();
+        }
+
+        private void CableList_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (DataContext is not BuildingsTabViewModel vm)
+                return;
+
+            if (sender is ListView lv)
+            {
+                var selected = lv.SelectedItem;
+                vm.HandleTreeSelection(selected);
+            }
+        }
+
+        private void CableList_OnMouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is not ListView lv)
+                return;
+
+            if (lv.SelectedItem is BuildingsTabViewModel.FacetVM fvm)
+            {
+                if (fvm.Type == FacetType.Cable)
+                    OpenCablePreview(fvm);
+                else
+                    OpenFacetPreview(fvm);
+
+                e.Handled = true;
+            }
         }
     }
 }

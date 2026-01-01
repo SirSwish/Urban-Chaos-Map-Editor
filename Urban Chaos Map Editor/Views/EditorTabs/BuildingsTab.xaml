@@ -23,6 +23,9 @@
         <!-- Global text colour for this tab -->
         <SolidColorBrush x:Key="TreeViewForegroundBrush" Color="White"/>
 
+        <!-- Legend text colour (dark grey so it works on yellow, etc.) -->
+        <SolidColorBrush x:Key="LegendTextBrush" Color="#FF303030"/>
+
         <!-- Make ALL TextBlocks white by default -->
         <Style TargetType="TextBlock">
             <Setter Property="Foreground" Value="{StaticResource TreeViewForegroundBrush}"/>
@@ -41,10 +44,72 @@
             </Style.Triggers>
         </Style>
 
+        <!-- Pills: equal size, rounded, used for legend -->
         <Style x:Key="LegendPill" TargetType="Border">
-            <Setter Property="CornerRadius" Value="6"/>
-            <Setter Property="Padding" Value="2,0"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding" Value="6,2"/>
             <Setter Property="Margin" Value="0,0,8,0"/>
+        </Style>
+
+        <!-- NEW: pill-style ToggleButton used for Walls / Fences / Doors / Ladders / Cables -->
+        <Style x:Key="LegendTogglePill" TargetType="ToggleButton">
+            <Setter Property="Foreground" Value="{StaticResource LegendTextBrush}"/>
+            <Setter Property="Padding" Value="6,2"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+            <Setter Property="MinWidth" Value="70"/>
+            <!-- equal-ish widths -->
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="#40FFFFFF"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="pill"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="10">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"
+                                          Margin="2,0"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <!-- Highlight when active -->
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="pill" Property="BorderBrush" Value="White"/>
+                                <Setter TargetName="pill" Property="BorderThickness" Value="2"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.5"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+
+        <!-- Compact pill toggle style -->
+        <Style x:Key="LegendTogglePillCompact" TargetType="ToggleButton" BasedOn="{StaticResource LegendTogglePill}">
+            <Setter Property="Padding" Value="10"/>
+            <Setter Property="MinHeight" Value="0"/>
+            <Setter Property="MinWidth" Value="50"/>
+            <Setter Property="Margin" Value="2,0,2,0"/>
+        </Style>
+
+        <!-- NEW: text styling inside the pills (dark grey, centered, bold) -->
+        <Style x:Key="LegendPillTextStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource LegendTextBrush}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+            <Setter Property="TextAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0"/>
+        </Style>
+
+
+        <!-- Compact pill text style -->
+        <Style x:Key="LegendPillTextStyleCompact" TargetType="TextBlock" BasedOn="{StaticResource LegendPillTextStyle}">
+            <Setter Property="FontSize" Value="11"/>
         </Style>
 
         <!-- Facet color converter -->
@@ -53,53 +118,52 @@
 
     <DockPanel>
         <!-- Toolbar -->
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8,6" VerticalAlignment="Center">
-            <!-- Watermarked search box -->
-            <Grid Width="180" Margin="0,0,8,0" ToolTip="Search (building id, storey id, facet id, type)">
-                <TextBox x:Name="SearchBox"
-                         Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}"/>
-                <TextBlock IsHitTestVisible="False" Margin="6,2,0,0" Foreground="#66FFFFFF" Text="Search">
-                    <TextBlock.Style>
-                        <Style TargetType="TextBlock">
-                            <Setter Property="Visibility" Value="Collapsed"/>
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding Text, ElementName=SearchBox}" Value="">
-                                    <Setter Property="Visibility" Value="Visible"/>
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </TextBlock.Style>
-                </TextBlock>
-            </Grid>
+        <StackPanel DockPanel.Dock="Top"
+                    Orientation="Horizontal"
+                    Margin="8,6"
+                    VerticalAlignment="Center">
 
-            <ComboBox Width="160" Margin="0,0,8,0"
-                      ItemsSource="{Binding FacetTypeOptions}"
-                      SelectedItem="{Binding SelectedFacetType}"
-                      ToolTip="Filter by facet type"/>
+            <!-- Filter + Legend stacked vertically -->
+            <StackPanel Orientation="Vertical">
+                <!-- Legend: all uniform pills -->
+                <WrapPanel Margin="0,4,0,0"
+           VerticalAlignment="Center"
+           Orientation="Horizontal">
 
-            <Button Content="Refresh" Command="{Binding RefreshCommand}" />
+                    <ToggleButton Style="{StaticResource LegendTogglePillCompact}"
+                  Background="{StaticResource FacetWallBrush}"
+                  IsChecked="{Binding FilterWalls}">
+                        <TextBlock Text="Walls" Style="{StaticResource LegendPillTextStyleCompact}"/>
+                    </ToggleButton>
 
-            <!-- Legend -->
-            <StackPanel Orientation="Horizontal" Margin="16,0,0,0" VerticalAlignment="Center">
-                <Border Style="{StaticResource LegendPill}" Background="{StaticResource FacetWallBrush}">
-                    <TextBlock Text="Walls" Margin="6,0" FontWeight="SemiBold"/>
-                </Border>
-                <Border Style="{StaticResource LegendPill}" Background="{StaticResource FacetFenceBrush}">
-                    <TextBlock Text="Fences" Margin="6,0" FontWeight="SemiBold"/>
-                </Border>
-                <Border Style="{StaticResource LegendPill}" Background="{StaticResource FacetCableBrush}">
-                    <TextBlock Text="Cables" Margin="6,0" FontWeight="SemiBold"/>
-                </Border>
-                <Border Style="{StaticResource LegendPill}" Background="{StaticResource FacetDoorBrush}">
-                    <TextBlock Text="Doors" Margin="6,0" FontWeight="SemiBold"/>
-                </Border>
-                <Border Style="{StaticResource LegendPill}" Background="{StaticResource FacetLadderBrush}">
-                    <TextBlock Text="Ladders" Margin="6,0" FontWeight="SemiBold"/>
-                </Border>
+                    <ToggleButton Style="{StaticResource LegendTogglePillCompact}"
+                  Background="{StaticResource FacetFenceBrush}"
+                  IsChecked="{Binding FilterFences}">
+                        <TextBlock Text="Fences" Style="{StaticResource LegendPillTextStyleCompact}"/>
+                    </ToggleButton>
+
+                    <ToggleButton Style="{StaticResource LegendTogglePillCompact}"
+                  Background="{StaticResource FacetDoorBrush}"
+                  IsChecked="{Binding FilterDoors}">
+                        <TextBlock Text="Doors" Style="{StaticResource LegendPillTextStyleCompact}"/>
+                    </ToggleButton>
+
+                    <ToggleButton Style="{StaticResource LegendTogglePillCompact}"
+                  Background="{StaticResource FacetLadderBrush}"
+                  IsChecked="{Binding FilterLadders}">
+                        <TextBlock Text="Ladders" Style="{StaticResource LegendPillTextStyleCompact}"/>
+                    </ToggleButton>
+
+                    <ToggleButton Style="{StaticResource LegendTogglePillCompact}"
+                  Background="{StaticResource FacetCableBrush}"
+                  IsChecked="{Binding ShowCablesList}">
+                        <TextBlock Text="Cables" Style="{StaticResource LegendPillTextStyleCompact}"/>
+                    </ToggleButton>
+                </WrapPanel>
             </StackPanel>
         </StackPanel>
 
-        <!-- Columnar stack: Tree (top) | Splitter | Details (bottom) -->
+        <!-- Columnar stack: Top (buildings + facets) | Splitter | Details -->
         <Grid Margin="8">
             <Grid.RowDefinitions>
                 <RowDefinition Height="*" />
@@ -107,114 +171,172 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <!-- TreeView (scrollable) -->
-                <TreeView ItemsSource="{Binding Buildings}"
-                          SelectedItemChanged="TreeView_OnSelectedItemChanged"
-                          MouseDoubleClick="TreeView_OnMouseDoubleClick"
-                          Foreground="{StaticResource TreeViewForegroundBrush}"
-                          TextElement.Foreground="{StaticResource TreeViewForegroundBrush}">
+            <!-- TOP ROW: Building list (left) + Facet tree / Cable list (right) -->
+            <Grid Grid.Row="0">
+                <Grid.ColumnDefinitions>
+                    <!-- Building list column kept narrow -->
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="8" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Flat list of buildings -->
+                <TreeView Grid.Column="0"
+                      Width="110"
+                      Margin="0,0,8,0"
+                      ItemsSource="{Binding Buildings}"
+                      SelectedItemChanged="BuildingTree_OnSelectedItemChanged"
+                      BorderThickness="0">
                     <TreeView.ItemTemplate>
-                        <!-- Building -->
-                        <HierarchicalDataTemplate DataType="{x:Type vm:BuildingVM}" ItemsSource="{Binding Storeys}">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="{Binding DisplayName}" FontWeight="Bold" Margin="2,0"/>
-                                <TextBlock Text="  ("/>
-                                <TextBlock Text="{Binding FacetCount}" />
-                                <TextBlock Text=" facets)"/>
-                            </StackPanel>
+                        <!-- Root: BuildingVM -->
+                        <HierarchicalDataTemplate DataType="{x:Type vm:BuildingVM}"
+                                  ItemsSource="{Binding VisibleStoreys}">
+                            <TextBlock Text="{Binding DisplayName}"/>
 
-                            <!-- Storeys -->
+                            <!-- Children: StoreyVM (only when VisibleStoreys has >0 items) -->
                             <HierarchicalDataTemplate.ItemTemplate>
-                                <HierarchicalDataTemplate DataType="{x:Type vm:StoreyVM}" ItemsSource="{Binding Groups}">
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="Storey "/>
-                                        <TextBlock Text="{Binding StoreyId}" FontWeight="Bold" Margin="2,0"/>
-                                        <TextBlock Text="  ("/>
-                                        <TextBlock Text="{Binding UsageCount}"/>
-                                        <TextBlock Text=" facets)"/>
-                                    </StackPanel>
-
-                                    <!-- Type groups -->
-                                    <HierarchicalDataTemplate.ItemTemplate>
-                                        <HierarchicalDataTemplate DataType="{x:Type vm:FacetTypeGroupVM}" ItemsSource="{Binding Facets}">
-                                            <StackPanel Orientation="Horizontal">
-                                                <Ellipse Width="9" Height="9" Margin="0,0,6,0">
-                                                    <Ellipse.Fill>
-                                                        <MultiBinding Converter="{StaticResource FacetTypeToBrush}">
-                                                            <Binding Path="Type"/>
-                                                            <Binding Source="{StaticResource FacetWallBrush}"/>
-                                                            <Binding Source="{StaticResource FacetFenceBrush}"/>
-                                                            <Binding Source="{StaticResource FacetCableBrush}"/>
-                                                            <Binding Source="{StaticResource FacetDoorBrush}"/>
-                                                            <Binding Source="{StaticResource FacetLadderBrush}"/>
-                                                            <Binding Source="{StaticResource FacetOtherBrush}"/>
-                                                        </MultiBinding>
-                                                    </Ellipse.Fill>
-                                                </Ellipse>
-                                                <TextBlock Text="{Binding TypeName}" FontWeight="SemiBold"/>
-                                                <TextBlock Text="  ("/>
-                                                <TextBlock Text="{Binding Count}"/>
-                                                <TextBlock Text=")"/>
-                                            </StackPanel>
-
-                                            <!-- Facets -->
-                                            <HierarchicalDataTemplate.ItemTemplate>
-                                                <DataTemplate DataType="{x:Type vm:FacetVM}">
-                                                    <StackPanel Orientation="Horizontal">
-                                                        <TextBlock Text="#"/>
-                                                        <TextBlock Text="{Binding FacetId1}" FontWeight="Bold" Margin="2,0"/>
-                                                        <TextBlock Text="  " />
-                                                        <TextBlock Text="{Binding Coords}"/>
-                                                        <TextBlock Text="  type="/>
-                                                        <TextBlock Text="{Binding Type}"/>
-                                                        <TextBlock Text="  y=" />
-                                                        <TextBlock Text="{Binding Y0}" />
-                                                        <TextBlock Text="?" />
-                                                        <TextBlock Text="{Binding Y1}" />
-
-                                                        <!-- Non-cable style -->
-                                                        <StackPanel Orientation="Horizontal">
-                                                            <StackPanel.Style>
-                                                                <Style TargetType="StackPanel">
-                                                                    <Setter Property="Visibility" Value="Visible"/>
-                                                                    <Style.Triggers>
-                                                                        <DataTrigger Binding="{Binding Type}" Value="{x:Static m:FacetType.Cable}">
-                                                                            <Setter Property="Visibility" Value="Collapsed"/>
-                                                                        </DataTrigger>
-                                                                    </Style.Triggers>
-                                                                </Style>
-                                                            </StackPanel.Style>
-                                                            <TextBlock Text="  style="/>
-                                                            <TextBlock Text="{Binding StyleDisplay}"/>
-                                                        </StackPanel>
-
-                                                        <!-- Cable-specific display (uses StyleDisplay already formatted) -->
-                                                        <StackPanel Orientation="Horizontal">
-                                                            <StackPanel.Style>
-                                                                <Style TargetType="StackPanel">
-                                                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                                                    <Style.Triggers>
-                                                                        <DataTrigger Binding="{Binding Type}" Value="{x:Static m:FacetType.Cable}">
-                                                                            <Setter Property="Visibility" Value="Visible"/>
-                                                                        </DataTrigger>
-                                                                    </Style.Triggers>
-                                                                </Style>
-                                                            </StackPanel.Style>
-                                                            <TextBlock Text="  " />
-                                                            <TextBlock Text="{Binding StyleDisplay}"/>
-                                                        </StackPanel>
-                                                    </StackPanel>
-                                                </DataTemplate>
-                                            </HierarchicalDataTemplate.ItemTemplate>
-                                        </HierarchicalDataTemplate>
-                                    </HierarchicalDataTemplate.ItemTemplate>
-                                </HierarchicalDataTemplate>
+                                <DataTemplate DataType="{x:Type vm:StoreyVM}">
+                                    <TextBlock Text="{Binding DisplayName}"/>
+                                </DataTemplate>
                             </HierarchicalDataTemplate.ItemTemplate>
                         </HierarchicalDataTemplate>
                     </TreeView.ItemTemplate>
                 </TreeView>
 
-                <!-- Splitter -->
+                <!-- Right side: facet tree OR cables list (toggled) -->
+                <Grid Grid.Column="2">
+                    <!-- Facet tree for the selected building + storey filter -->
+                    <TreeView ItemsSource="{Binding SelectedBuildingFacetGroups}"
+                              SelectedItemChanged="TreeView_OnSelectedItemChanged"
+                              MouseDoubleClick="TreeView_OnMouseDoubleClick"
+                              Foreground="{StaticResource TreeViewForegroundBrush}"
+                              TextElement.Foreground="{StaticResource TreeViewForegroundBrush}">
+                        <TreeView.Style>
+                            <Style TargetType="TreeView">
+                                <Setter Property="Visibility" Value="Visible"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ShowCablesList}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TreeView.Style>
+
+                        <TreeView.ItemTemplate>
+                            <!-- ROOT: FacetTypeGroupVM -->
+                            <HierarchicalDataTemplate DataType="{x:Type vm:FacetTypeGroupVM}"
+                                                      ItemsSource="{Binding Facets}">
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse Width="9" Height="9" Margin="0,0,6,0">
+                                        <Ellipse.Fill>
+                                            <MultiBinding Converter="{StaticResource FacetTypeToBrush}">
+                                                <Binding Path="Type"/>
+                                                <Binding Source="{StaticResource FacetWallBrush}"/>
+                                                <Binding Source="{StaticResource FacetFenceBrush}"/>
+                                                <Binding Source="{StaticResource FacetCableBrush}"/>
+                                                <Binding Source="{StaticResource FacetDoorBrush}"/>
+                                                <Binding Source="{StaticResource FacetLadderBrush}"/>
+                                                <Binding Source="{StaticResource FacetOtherBrush}"/>
+                                            </MultiBinding>
+                                        </Ellipse.Fill>
+                                    </Ellipse>
+                                    <TextBlock Text="{Binding TypeName}" FontWeight="SemiBold"/>
+                                    <TextBlock Text="  ("/>
+                                    <TextBlock Text="{Binding Count}"/>
+                                    <TextBlock Text=" facets)"/>
+                                </StackPanel>
+
+                                <!-- CHILD: FacetVM rows -->
+                                <HierarchicalDataTemplate.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:FacetVM}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="#"/>
+                                            <TextBlock Text="{Binding FacetId1}" FontWeight="Bold" Margin="2,0"/>
+                                            <TextBlock Text="  " />
+                                            <TextBlock Text="{Binding Coords}"/>
+                                            <TextBlock Text="  type="/>
+                                            <TextBlock Text="{Binding Type}"/>
+                                            <TextBlock Text="  y=" />
+                                            <TextBlock Text="{Binding Y0}" />
+                                            <TextBlock Text="?" />
+                                            <TextBlock Text="{Binding Y1}" />
+
+                                            <!-- Non-cable style -->
+                                            <StackPanel Orientation="Horizontal">
+                                                <StackPanel.Style>
+                                                    <Style TargetType="StackPanel">
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Type}"
+                                                                         Value="{x:Static m:FacetType.Cable}">
+                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </StackPanel.Style>
+                                                <TextBlock Text="  style="/>
+                                                <TextBlock Text="{Binding StyleDisplay}"/>
+                                            </StackPanel>
+
+                                            <!-- Cable-specific display (uses StyleDisplay already formatted) -->
+                                            <StackPanel Orientation="Horizontal">
+                                                <StackPanel.Style>
+                                                    <Style TargetType="StackPanel">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Type}"
+                                                                         Value="{x:Static m:FacetType.Cable}">
+                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </StackPanel.Style>
+                                                <TextBlock Text="  " />
+                                                <TextBlock Text="{Binding StyleDisplay}"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </HierarchicalDataTemplate.ItemTemplate>
+                            </HierarchicalDataTemplate>
+                        </TreeView.ItemTemplate>
+                    </TreeView>
+
+                    <!-- Global cables list (shown when Cables pill is toggled) -->
+                    <ListView x:Name="CableList"
+                              Margin="0"
+                              ItemsSource="{Binding CableFacets}"
+                              SelectionChanged="CableList_OnSelectionChanged"
+                              MouseDoubleClick="CableList_OnMouseDoubleClick">
+                        <ListView.Style>
+                            <Style TargetType="ListView">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ShowCablesList}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ListView.Style>
+
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="Facet#" Width="60"
+                                                DisplayMemberBinding="{Binding FacetId1}"/>
+                                <GridViewColumn Header="Coords" Width="160"
+                                                DisplayMemberBinding="{Binding Coords}"/>
+                                <GridViewColumn Header="Height" Width="70"
+                                                DisplayMemberBinding="{Binding Height}"/>
+                                <GridViewColumn Header="Sag / Angles" Width="220"
+                                                DisplayMemberBinding="{Binding StyleDisplay}"/>
+                                <GridViewColumn Header="Flags" Width="90"
+                                                DisplayMemberBinding="{Binding Flags}"/>
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+                </Grid>
+            </Grid>
+
+            <!-- Splitter -->
             <GridSplitter Grid.Row="1"
                           HorizontalAlignment="Stretch"
                           VerticalAlignment="Center"
@@ -239,6 +361,7 @@
                             </Grid.RowDefinitions>
 
                             <TextBlock Text="Selection" FontWeight="Bold" FontSize="13"/>
+
                             <StackPanel Grid.Row="2" Orientation="Horizontal">
                                 <TextBlock Text="Facet ID: " FontWeight="SemiBold"/>
                                 <TextBlock Text="{Binding SelectedFacet.FacetId1}"/>
@@ -251,7 +374,8 @@
                                         <Style TargetType="TextBlock">
                                             <Setter Property="Visibility" Value="Visible"/>
                                             <Style.Triggers>
-                                                <DataTrigger Binding="{Binding SelectedFacet.Type}" Value="{x:Static m:FacetType.Cable}">
+                                                <DataTrigger Binding="{Binding SelectedFacet.Type}"
+                                                             Value="{x:Static m:FacetType.Cable}">
                                                     <Setter Property="Visibility" Value="Collapsed"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
@@ -263,7 +387,8 @@
                                         <Style TargetType="TextBlock">
                                             <Setter Property="Visibility" Value="Visible"/>
                                             <Style.Triggers>
-                                                <DataTrigger Binding="{Binding SelectedFacet.Type}" Value="{x:Static m:FacetType.Cable}">
+                                                <DataTrigger Binding="{Binding SelectedFacet.Type}"
+                                                             Value="{x:Static m:FacetType.Cable}">
                                                     <Setter Property="Visibility" Value="Collapsed"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
@@ -277,7 +402,8 @@
                                         <Style TargetType="StackPanel">
                                             <Setter Property="Visibility" Value="Collapsed"/>
                                             <Style.Triggers>
-                                                <DataTrigger Binding="{Binding SelectedFacet.Type}" Value="{x:Static m:FacetType.Cable}">
+                                                <DataTrigger Binding="{Binding SelectedFacet.Type}"
+                                                             Value="{x:Static m:FacetType.Cable}">
                                                     <Setter Property="Visibility" Value="Visible"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
@@ -297,7 +423,9 @@
                                 <TextBlock Text="{Binding SelectedFacet.Coords}"/>
                                 <TextBlock Text="   Height: " FontWeight="SemiBold" Margin="10,0,0,0"/>
                                 <TextBlock>
-                                    <Run Text="{Binding SelectedFacet.Height}"/><Run Text="/"/><Run Text="{Binding SelectedFacet.FHeight}"/>
+                                    <Run Text="{Binding SelectedFacet.Height}"/>
+                                    <Run Text="/"/>
+                                    <Run Text="{Binding SelectedFacet.FHeight}"/>
                                 </TextBlock>
                             </StackPanel>
 
@@ -313,7 +441,8 @@
                                 <TextBlock Text="{Binding SelectedBuildingId}"/>
                             </StackPanel>
 
-                            <TextBlock Grid.Row="6" Opacity="0.6"
+                            <TextBlock Grid.Row="6"
+                                       Opacity="0.6"
                                        Text="(Display-only preview. Editing to come.)"
                                        VerticalAlignment="Bottom"/>
                         </Grid>

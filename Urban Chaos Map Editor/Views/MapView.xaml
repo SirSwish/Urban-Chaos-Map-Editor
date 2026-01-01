@@ -44,14 +44,25 @@
                             Panel.ZIndex="3"
                             IsHitTestVisible="False"/>
                     <!-- inside your overlay grid/panel (same host as other layers) -->
-                    <ovl:BuildingLayer x:Name="BuildingLayer"
-                                            Visibility="Visible"/>
+                    <ovl:BuildingLayer
+                            x:Name="BuildingLayer"
+                            Width="8192" Height="8192"
+                            Visibility="{Binding ShowBuildings, Converter={StaticResource BoolToVis}}"
+                            Panel.ZIndex="4"
+                            IsHitTestVisible="False"/>
+                    <!-- NEW: Prims overlay -->
+                    <ovl:PrimGraphicsLayer
+                            x:Name="PrimGraphicsOverlay"
+                            Width="8192" Height="8192"
+                            Visibility="{Binding ShowPrimGraphics, Converter={StaticResource BoolToVis}}"
+                            Panel.ZIndex="5"    
+                            IsHitTestVisible="False" />
                     <!-- NEW: Prims overlay -->
                     <ovl:PrimsLayer
                             x:Name="PrimsOverlay"
                             Width="8192" Height="8192"
                             Visibility="{Binding ShowObjects, Converter={StaticResource BoolToVis}}"
-                            Panel.ZIndex="4"
+                            Panel.ZIndex="6"
                             IsHitTestVisible="True" />
                     <ovl:LightLayer
                             Visibility="{Binding ShowLights, Converter={StaticResource BoolToVis}}"

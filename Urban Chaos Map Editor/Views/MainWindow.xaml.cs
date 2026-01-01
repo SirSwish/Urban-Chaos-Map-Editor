@@ -24,10 +24,9 @@ namespace UrbanChaosMapEditor.Views
         private void DeleteLight_Click(object sender, RoutedEventArgs e) => DeleteSelectedLight();
         private void CopyLight_Click(object sender, RoutedEventArgs e) => CopySelectedLight();
         private void PasteLight_Click(object sender, RoutedEventArgs e) => PasteLightAtCursor();
-        private const double MinExpandedEditorWidth = 285;  // <-- your minimum when expanded
+        private const double MinExpandedEditorWidth = 300;  // <-- your minimum when expanded
         private const double CollapsedRailWidth = 28;       // width when collapsed
-        private double _lastEditorWidth = MinExpandedEditorWidth;
-
+        private double _lastDrawerWidth = MinExpandedEditorWidth;
 
 
         public MainWindow()
@@ -52,21 +51,28 @@ namespace UrbanChaosMapEditor.Views
 
         private void EditorExpander_Expanded(object sender, RoutedEventArgs e)
         {
-            // Enforce the min once expanded and restore last width (clamped to min)
-            EditorCol.MinWidth = MinExpandedEditorWidth;
-            var target = Math.Max(_lastEditorWidth, MinExpandedEditorWidth);
-            EditorCol.Width = new GridLength(target);
+            // Keep rail visible
+            EditorRailCol.Width = new GridLength(CollapsedRailWidth);
+
+            // Restore drawer width
+            EditorDrawerCol.MinWidth = MinExpandedEditorWidth;
+            var target = Math.Max(_lastDrawerWidth, MinExpandedEditorWidth);
+            EditorDrawerCol.Width = new GridLength(target);
         }
+
 
         private void EditorExpander_Collapsed(object sender, RoutedEventArgs e)
         {
-            // Remember last “usable” width before collapsing
-            var w = EditorCol.ActualWidth;
-            if (w > MinExpandedEditorWidth) _lastEditorWidth = w;
+            // Remember last drawer width
+            var w = EditorDrawerCol.ActualWidth;
+            if (w > 0) _lastDrawerWidth = w;
 
-            // Allow the rail to shrink below the expanded min
-            EditorCol.MinWidth = 0;
-            EditorCol.Width = new GridLength(CollapsedRailWidth);
+            // Collapse drawer fully
+            EditorDrawerCol.MinWidth = 0;
+            EditorDrawerCol.Width = new GridLength(0);
+
+            // Keep only the rail
+            EditorRailCol.Width = new GridLength(CollapsedRailWidth);
         }
 
         private void TryEnableDarkTitleBar()
@@ -391,6 +397,16 @@ namespace UrbanChaosMapEditor.Views
             int uiX = MapConstants.MapPixels - map.CursorX;
             int uiY = MapConstants.MapPixels - map.CursorZ;
 
+            // NEW: if CTRL is held, snap to nearest 64×64 vertex
+            if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+            {
+                uiX = (int)(Math.Round(uiX / 64.0) * 64.0);
+                uiY = (int)(Math.Round(uiY / 64.0) * 64.0);
+
+                uiX = Math.Clamp(uiX, 0, MapConstants.MapPixels - 1);
+                uiY = Math.Clamp(uiY, 0, MapConstants.MapPixels - 1);
+            }
+
             // Convert to MapWho + cell-local 0..255 coords
             ObjectSpace.UiPixelsToGamePrim(uiX, uiY, out int mapWhoIndex, out byte gameX, out byte gameZ);
 
@@ -496,6 +512,64 @@ namespace UrbanChaosMapEditor.Views
                     e.Handled = true;
                     return;
                 }
+            }
+
+            // ==== Arrow keys: move selected prim by 1 pixel ====
+            if (e.Key == Key.Left || e.Key == Key.Right || e.Key == Key.Up || e.Key == Key.Down)
+            {
+                if (DataContext is not MainWindowViewModel shell || shell.Map == null)
+                    return;
+
+                var map = shell.Map;
+                var sel = map.SelectedPrim;
+                if (sel == null)
+                    return;
+
+                // Don’t interfere with placement mode
+                if (map.IsPlacingPrim)
+                    return;
+
+                int dxUi = 0, dzUi = 0;
+                switch (e.Key)
+                {
+                    case Key.Left: dxUi = -1; break;
+                    case Key.Right: dxUi = 1; break;
+                    case Key.Up: dzUi = -1; break;
+                    case Key.Down: dzUi = 1; break;
+                }
+
+                // Work in UI pixel space (0..8191), same as PixelX / PixelZ
+                int newUiX = Math.Clamp(sel.PixelX + dxUi, 0, MapConstants.MapPixels - 1);
+                int newUiZ = Math.Clamp(sel.PixelZ + dzUi, 0, MapConstants.MapPixels - 1);
+
+                // Convert back to game-space cell + local coords
+                ObjectSpace.UiPixelsToGamePrim(newUiX, newUiZ, out int mapWhoIndex, out byte gameX, out byte gameZ);
+
+                try
+                {
+                    var acc = new ObjectsAccessor(MapDataService.Instance);
+                    acc.MovePrim(sel.Index, mapWhoIndex, gameX, gameZ);
+
+                    // Refresh list and re-select this prim by index
+                    map.RefreshPrimsList();
+
+                    PrimListItem? toSelect = null;
+                    if (sel.Index >= 0 && sel.Index < map.Prims.Count)
+                        toSelect = map.Prims[sel.Index];
+
+                    map.SelectedPrim = toSelect;
+
+                    shell.StatusMessage =
+                        $"Moved {sel.Name} to cell {mapWhoIndex} (X={gameX}, Z={gameZ}).";
+                }
+                catch (Exception ex)
+                {
+                    shell.StatusMessage = "Error: failed to move prim with arrow keys.";
+                    System.Diagnostics.Debug.WriteLine(ex);
+                }
+
+                e.Handled = true;
+                return;
             }
 
             // ==== Delete key ====

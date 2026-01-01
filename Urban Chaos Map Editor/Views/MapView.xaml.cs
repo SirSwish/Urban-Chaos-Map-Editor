@@ -18,6 +18,9 @@ namespace UrbanChaosMapEditor.Views
         private const double MinZoom = 0.10;
         private const double MaxZoom = 8.00;
 
+        private static bool IsCtrlDown()
+    => Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl);
+
         private readonly HeightsAccessor _heights = new HeightsAccessor(MapDataService.Instance);
 
         // Level tool state
@@ -132,9 +135,11 @@ namespace UrbanChaosMapEditor.Views
             // === Prim placement commit ===
             if (vm.IsPlacingPrim)
             {
-
                 int clampedX = Math.Clamp((int)mouseDownPos.X, 0, MapConstants.MapPixels - 1);
                 int clampedZ = Math.Clamp((int)mouseDownPos.Y, 0, MapConstants.MapPixels - 1);
+
+                // NEW: Ctrl → snap to nearest 64×64 vertex before converting
+                SnapUiToVertexIfCtrl(ref clampedX, ref clampedZ);
 
                 ObjectSpace.UiPixelsToGamePrim(clampedX, clampedZ, out int mapWhoIndex, out byte gameX, out byte gameZ);
 
@@ -378,6 +383,9 @@ namespace UrbanChaosMapEditor.Views
                 Point pos = e.GetPosition(Surface);
                 int clampedX = Math.Clamp((int)pos.X, 0, MapConstants.MapPixels - 1);
                 int clampedZ = Math.Clamp((int)pos.Y, 0, MapConstants.MapPixels - 1);
+
+                // NEW: Ctrl → snap ghost to nearest 64×64 vertex (matches commit behaviour)
+                SnapUiToVertexIfCtrl(ref clampedX, ref clampedZ);
 
                 // Use different variable names to avoid shadowing gameX/gameZ above
                 ObjectSpace.UiPixelsToGamePrim(clampedX, clampedZ, out int mapWhoIndex, out byte cellX, out byte cellZ);
@@ -706,6 +714,20 @@ namespace UrbanChaosMapEditor.Views
 
             Scroller.ScrollToHorizontalOffset(targetX);
             Scroller.ScrollToVerticalOffset(targetY);
+        }
+        private static void SnapUiToVertexIfCtrl(ref int uiX, ref int uiZ)
+        {
+            // Only snap when Ctrl is held
+            if (!IsCtrlDown())
+                return;
+
+            int size = MapConstants.TileSize; // 64
+
+            uiX = (int)(Math.Round(uiX / (double)size) * size);
+            uiZ = (int)(Math.Round(uiZ / (double)size) * size);
+
+            uiX = Math.Clamp(uiX, 0, MapConstants.MapPixels - 1);
+            uiZ = Math.Clamp(uiZ, 0, MapConstants.MapPixels - 1);
         }
     }
 }

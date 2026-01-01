@@ -25,7 +25,7 @@ namespace UrbanChaosMapEditor.Models
             { 56, "Le Grande Sign" }, { 57, "Rail Sign 2" }, { 58, "Tree 3" }, { 59, "Tree 4" },
             { 60, "Railway Stand" }, { 61, "Boombox" }, { 62, "Lion Statue" }, { 63, "Motomo Sign" },
             { 64, "Choke Sign" }, { 65, "Buy Cigarette Sign" }, { 66, "Take Away Sign" }, { 67, "Road Cone" },
-            { 68, "Ala Mode Sign" }, { 69, "Planter Box" }, { 70, "Brown Pedestal" },
+            { 68, "Ala Mode Sign" }, { 69, "Door Awning" }, { 70, "Brown Pedestal" },
             { 71, "Stamina (Treasure)" }, { 72, "Bush 2" }, { 73, "Building Top 1" }, { 74, "Helicopter Body" },
             { 75, "Helicopter Rotor" }, { 76, "Soda Can" }, { 77, "Marble Archway" }, { 78, "Tree 5" },
             { 79, "Building Top 2" }, { 80, "Side Step" }, { 81, "Reflexes (Treasure)" }, { 82, "Nude Sign" },
@@ -129,7 +129,6 @@ namespace UrbanChaosMapEditor.Models
                 { 208, PrimButtonCategory.Foliage }, // Pot Plant 2
                 { 212, PrimButtonCategory.Foliage }, // Pink Flowers
                 { 231, PrimButtonCategory.Foliage }, // Wildcat Topiary
-                { 69,  PrimButtonCategory.Foliage }, // Planter Box
                 { 250, PrimButtonCategory.Foliage }, // Marble Plant
                 { 251, PrimButtonCategory.Foliage }, // Marble Plant 2
 
@@ -197,6 +196,7 @@ namespace UrbanChaosMapEditor.Models
                 { 117, PrimButtonCategory.Structures }, // Doors 2
                 { 154, PrimButtonCategory.Structures }, // Doors 3
                 { 244, PrimButtonCategory.Structures }, // Doors 4
+                { 69,  PrimButtonCategory.Structures }, // Door AWning
                 { 181, PrimButtonCategory.Structures }, // Bane Gate Left
                 { 182, PrimButtonCategory.Structures }, // Bane Gate Right
                 { 183, PrimButtonCategory.Structures }, // Cure Rail Barrier

@@ -128,6 +128,9 @@ namespace UrbanChaosMapEditor.ViewModels
         private bool _showObjects = true;
         public bool ShowObjects { get => _showObjects; set { if (_showObjects != value) { _showObjects = value; OnPropertyChanged(); } } }
 
+        private bool _showPrimGraphics = true;
+        public bool ShowPrimGraphics { get => _showPrimGraphics; set { if (_showPrimGraphics != value) { _showPrimGraphics = value; OnPropertyChanged(); } } }
+
         private bool _showGridLines = true;
         public bool ShowGridLines { get => _showGridLines; set { if (_showGridLines != value) { _showGridLines = value; OnPropertyChanged(); } } }
 

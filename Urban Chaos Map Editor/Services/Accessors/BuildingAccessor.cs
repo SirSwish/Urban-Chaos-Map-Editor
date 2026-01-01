@@ -1,5 +1,6 @@
 ﻿// UrbanChaosMapEditor/Services/BuildingsAccessor.cs
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using UrbanChaosMapEditor.Models;
 using UrbanChaosMapEditor.Services.DataServices;
@@ -8,7 +9,7 @@ namespace UrbanChaosMapEditor.Services
 {
     /// <summary>
     /// Primary accessor for the building (“super map”) block.
-    /// Produces a BuildingArrays snapshot (DBuildings, DFacets, dstyles, paint_mem, dstoreys).
+    /// Produces a BuildingArrays snapshot (DBuildings, DFacets, dstyles, paint_mem, dstoreys, cables).
     /// </summary>
     public sealed class BuildingsAccessor
     {
@@ -38,6 +39,7 @@ namespace UrbanChaosMapEditor.Services
         /// <summary>
         /// Returns a full, immutable snapshot of the building block:
         /// DBuildings, DFacets, dstyles[], paint_mem[], dstoreys[] and header counters.
+        /// Also extracts all Cable facets into BuildingArrays.Cables.
         /// If no map is loaded or bounds are invalid, returns an empty snapshot.
         /// </summary>
         public BuildingArrays ReadSnapshot()
@@ -52,6 +54,7 @@ namespace UrbanChaosMapEditor.Services
                 Styles = Array.Empty<short>(),
                 PaintMem = Array.Empty<byte>(),
                 Storeys = Array.Empty<BuildingArrays.DStoreyRec>(),
+                Cables = Array.Empty<CableFacet>(),
                 NextDBuilding = 0,
                 NextDFacet = 0,
                 NextDStyle = 0,
@@ -72,9 +75,9 @@ namespace UrbanChaosMapEditor.Services
             int saveType = BitConverter.ToInt32(bytes, 0);
 
             // Header counters (1-based where noted)
-            ushort nextDBuilding = ReadU16(bytes, start + 2);  // DBuildings 1-based count
-            ushort nextDFacet = ReadU16(bytes, start + 4);  // DFacets    1-based count
-            ushort nextDStyle = ReadU16(bytes, start + 6);  // dstyles    full count incl. 0
+            ushort nextDBuilding = ReadU16(bytes, start + 2);   // DBuildings 1-based count
+            ushort nextDFacet = ReadU16(bytes, start + 4);   // DFacets    1-based count
+            ushort nextDStyle = ReadU16(bytes, start + 6);   // dstyles    full count incl. 0
             ushort nextPaintMem = (saveType >= 17) ? ReadU16(bytes, start + 8) : (ushort)0;
             ushort nextDStorey = (saveType >= 17) ? ReadU16(bytes, start + 10) : (ushort)0;
 
@@ -104,9 +107,27 @@ namespace UrbanChaosMapEditor.Services
             for (int i = 0; i < totalBuildings; i++)
             {
                 int off = buildingsOff + i * DBuildingSize;
-                ushort startFacet = ReadU16(bytes, off + 12); // 1-based
-                ushort endFacet = ReadU16(bytes, off + 14); // 1-based
-                buildings[i] = new DBuildingRec(startFacet, endFacet);
+
+                ushort startFacet = ReadU16(bytes, off + 0);
+                ushort endFacet = ReadU16(bytes, off + 2);
+
+                int worldX = BitConverter.ToInt32(bytes, off + 4);
+                int worldY = BitConverter.ToInt32(bytes, off + 8);
+                int worldZ = BitConverter.ToInt32(bytes, off + 12);
+
+                ushort walkable = ReadU16(bytes, off + 16);
+                byte counter0 = bytes[off + 18];
+                byte counter1 = bytes[off + 19];
+                // ushort padding = ReadU16(bytes, off + 20); // currently ignored
+                byte ware = bytes[off + 22];
+                byte type = bytes[off + 23];
+
+                buildings[i] = new DBuildingRec(
+                    worldX, worldY, worldZ,
+                    startFacet, endFacet,
+                    walkable,
+                    counter0, counter1,
+                    ware, type);
             }
 
             // ---- DFacets (FULL 26B LAYOUT) ----
@@ -156,12 +177,60 @@ namespace UrbanChaosMapEditor.Services
             if (totalFacets > 0)
             {
                 var f0 = facets[0];
-                Debug.WriteLine($"[BuildingsAccessor] first facet: id=1 type={f0.Type} bld={f0.Building} st={f0.Storey} styIdx={f0.StyleIndex} xy=({f0.X0},{f0.Z0})->({f0.X1},{f0.Z1})");
+                Debug.WriteLine(
+                    $"[BuildingsAccessor] first facet: id=1 type={f0.Type} bld={f0.Building} st={f0.Storey} styIdx={f0.StyleIndex} xy=({f0.X0},{f0.Z0})->({f0.X1},{f0.Z1})");
             }
             else
             {
                 Debug.WriteLine("[BuildingsAccessor] no facets parsed.");
             }
+
+            // ---- Cables: extract from DFacets ----
+            var cablesList = new List<CableFacet>();
+            for (int i = 0; i < facets.Length; i++)
+            {
+                var f = facets[i];
+                if (!f.IsCable)
+                    continue;
+
+                // Facet indices are 1-based in the engine / DBuilding ranges
+                int facetId1 = i + 1;
+
+                // World coordinates as used by the engine:
+                // x_world = x * 256, z_world = z * 256, y already world Y.
+                int wx1 = f.X0 * 256;
+                int wy1 = f.Y0;
+                int wz1 = f.Z0 * 256;
+
+                int wx2 = f.X1 * 256;
+                int wy2 = f.Y1;
+                int wz2 = f.Z1 * 256;
+
+                int buildingIndex = FindBuildingIndexForFacet(buildings, facetId1);
+
+                var cable = new CableFacet
+                {
+                    FacetIndex = facetId1,
+                    WorldX1 = wx1,
+                    WorldY1 = wy1,
+                    WorldZ1 = wz1,
+                    WorldX2 = wx2,
+                    WorldY2 = wy2,
+                    WorldZ2 = wz2,
+                    SegmentCount = f.CableSegments,
+                    // FHeight is the “mode” (engine multiplies by 64 when computing sag)
+                    SagBase = (short)f.FHeight,
+                    SagAngleDelta1 = f.CableStep1Signed,
+                    SagAngleDelta2 = f.CableStep2Signed,
+                    BuildingIndex = buildingIndex,
+                    RawFacet = f
+                };
+
+                cablesList.Add(cable);
+            }
+
+            var cables = cablesList.ToArray();
+            Debug.WriteLine($"[BuildingsAccessor] Extracted cables={cables.Length}");
 
             // ---- dstyles (S16[nextDStyle]) ----
             short[] styles = Array.Empty<short>();
@@ -234,13 +303,13 @@ namespace UrbanChaosMapEditor.Services
             {
                 StartOffset = start,
                 Length = len,
-                FacetsStart = facetsOff,           // << NEW
+                FacetsStart = facetsOff,
                 Buildings = buildings,
                 Facets = facets,
                 Styles = styles,
                 PaintMem = paintMem,
                 Storeys = storeys,
-
+                Cables = cables,
                 NextDBuilding = nextDBuilding,
                 NextDFacet = nextDFacet,
                 NextDStyle = nextDStyle,
@@ -321,8 +390,8 @@ namespace UrbanChaosMapEditor.Services
         }
 
         // ---------- Helpers ----------
-        public static int DecodePaintPage(byte b) => b & 0x7F;         // lower 7 bits
-        public static bool DecodePaintFlag(byte b) => (b & 0x80) != 0;  // high bit
+        public static int DecodePaintPage(byte b) => b & 0x7F;          // lower 7 bits
+        public static bool DecodePaintFlag(byte b) => (b & 0x80) != 0;   // high bit
 
         private static bool PlausibleHeader(byte[] b, int off, int objOff, out long facetsOff, out long facetsEnd)
         {
@@ -373,5 +442,23 @@ namespace UrbanChaosMapEditor.Services
 
         private static ushort ReadU16(byte[] b, int off)
             => (ushort)(b[off + 0] | (b[off + 1] << 8));
+
+        /// <summary>
+        /// Finds the 1-based DBuilding index that owns the given 1-based facet id,
+        /// based on the DBuilding.StartFacet/EndFacet ranges. Returns 0 if none.
+        /// </summary>
+        private static int FindBuildingIndexForFacet(DBuildingRec[] buildings, int facetId1)
+        {
+            for (int i = 0; i < buildings.Length; i++)
+            {
+                var b = buildings[i];
+                if (facetId1 >= b.StartFacet && facetId1 < b.EndFacet)
+                {
+                    // DBuilding ids are 1-based in the engine
+                    return i + 1;
+                }
+            }
+            return 0;
+        }
     }
 }

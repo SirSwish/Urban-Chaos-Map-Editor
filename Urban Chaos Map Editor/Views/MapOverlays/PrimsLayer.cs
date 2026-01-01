@@ -18,11 +18,22 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
     ///  - yaw arrow rendering,
     ///  - yaw edit by dragging in a ring around the dot (new).
     /// </summary>
+
     public sealed class PrimsLayer : FrameworkElement
     {
-        private const double DotRadius = 7.0;
+
+        private static int _nextId;
+        private readonly int _id = System.Threading.Interlocked.Increment(ref _nextId);
+
+        private void Log(string msg)
+        {
+            Debug.WriteLine($"[PrimsLayer#{_id} h={System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this)}] {msg}");
+        }
+
+        private const double DotRadius = 4.0;
         private const double HitGrow = 4.0;
         private const double DragThreshold = 4.0; // pixels
+        private const double PrimSnapGrid = 64.0; // UI pixels per big tile vertex
 
         // --- Move drag state (unchanged semantics) ---
         private bool _mouseDown;
@@ -59,6 +70,7 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
             Width = MapConstants.MapPixels;
             Height = MapConstants.MapPixels;
             IsHitTestVisible = true;
+            Focusable = true;
 
             // repaint on map lifecycle
             MapDataService.Instance.MapLoaded += (_, __) => Dispatcher.Invoke(InvalidateVisual);
@@ -152,6 +164,14 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
             => new PointHitTestResult(this, p.HitPoint);
 
         // -------- Additional helpers --------
+        private static Point SnapToNearestVertex(Point pos)
+        {
+            // Map canvas uses X = PixelX, Y = PixelZ
+            double snappedX = Math.Round(pos.X / PrimSnapGrid) * PrimSnapGrid;
+            double snappedZ = Math.Round(pos.Y / PrimSnapGrid) * PrimSnapGrid;
+            return new Point(snappedX, snappedZ);
+        }
+
         private static double NormalizeRadians(double a)
         {
             double twoPi = 2.0 * Math.PI;
@@ -214,7 +234,7 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
             double maxPick = Math.Max(YawRingOuter, DotRadius + 4); // allow arrow ring or dot
             if (hit < 0 || dist > maxPick)
             {
-                Debug.WriteLine($"[PrimsLayer] PMDown @ {pos.X},{pos.Y}, no hit");
+                Log($"[PrimsLayer] PMDown @ {pos.X},{pos.Y}, no hit");
                 return;
             }
 
@@ -242,6 +262,8 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
                 _ghost = null;
 
                 CaptureMouse();
+                Focus();
+                Keyboard.Focus(this);
 
                 // Seed a yaw ghost for live preview
                 var yaw = YawFromMouse(pos, center);
@@ -282,7 +304,9 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
                 _pressedItem = prim;
 
                 bool captured = CaptureMouse();
-                Debug.WriteLine($"[PrimsLayer] Select for drag: UI-idx={hit}, captured={captured}, down={_mouseDownPos.X},{_mouseDownPos.Y}");
+                Focus();
+                Keyboard.Focus(this);
+                Log($"[PrimsLayer] Select for drag: UI-idx={hit}, captured={captured}, down={_mouseDownPos.X},{_mouseDownPos.Y}");
                 e.Handled = true;
                 return;
             }
@@ -292,15 +316,15 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
         {
             base.OnPreviewMouseMove(e);
             if (DataContext is not MapViewModel vm) return;
+                
             var pos = e.GetPosition(this);
 
-            // --- Yaw editing live preview (new) ---
+            // --- Yaw editing live preview (unchanged) ---
             if (_yawEditing && _pressedItem != null && e.LeftButton == MouseButtonState.Pressed)
             {
                 var center = new Point(_pressedItem.PixelX, _pressedItem.PixelZ);
                 var yaw = YawFromMouse(pos, center);
 
-                // keep preview pinned to the prim's current position
                 vm.DragPreviewPrim = new PrimListItem
                 {
                     Index = _pressedItem.Index,
@@ -326,11 +350,13 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
                 return;
             }
 
-            // --- Move drag path (unchanged) ---
-            if (e.LeftButton == MouseButtonState.Pressed)
-                Debug.WriteLine($"[PrimsLayer] PMove (pressed) @ {pos.X},{pos.Y}  state: down={_mouseDown} drag={_isDragging} idx={_draggedIndex}");
 
-            if (!_mouseDown || _draggedIndex < 0 || e.LeftButton != MouseButtonState.Pressed) return;
+            // --- Move drag path (existing behavior, now with optional snapping) ---
+            if (e.LeftButton == MouseButtonState.Pressed)
+                Log($"[PrimsLayer] PMove (pressed) @ {pos.X},{pos.Y}  state: down={_mouseDown} drag={_isDragging} idx={_draggedIndex}");
+
+            if (!_mouseDown || _draggedIndex < 0 || e.LeftButton != MouseButtonState.Pressed)
+                return;
 
             if (!_isDragging)
             {
@@ -338,7 +364,7 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
                 if (Math.Abs(d.X) > DragThreshold || Math.Abs(d.Y) > DragThreshold)
                 {
                     _isDragging = true;
-                    Debug.WriteLine($"[PrimsLayer] Drag start. down={_mouseDownPos.X},{_mouseDownPos.Y} now={pos.X},{pos.Y} Δ=({d.X:0.0},{d.Y:0.0})");
+                    Log($"[PrimsLayer] Drag start. down={_mouseDownPos.X},{_mouseDownPos.Y} now={pos.X},{pos.Y} Δ=({d.X:0.0},{d.Y:0.0})");
                 }
                 else
                 {
@@ -346,45 +372,47 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
                 }
             }
 
-            int clampedX = Math.Clamp((int)pos.X, 0, 8191);
-            int clampedZ = Math.Clamp((int)pos.Y, 0, 8191);
+            bool ctrlDown = Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl);
+            if (ctrlDown)
+                pos = SnapToNearestVertex(pos);
 
-            ObjectSpace.UiPixelsToGamePrim(clampedX, clampedZ, out int targetIndex, out byte gameX, out byte gameZ);
-            ObjectSpace.GameIndexToUiRowCol(targetIndex, out int uiRow, out int uiCol);
-            ObjectSpace.GamePrimToUiPixels(targetIndex, gameX, gameZ, out int px, out int pz);
+            int clampedMoveX = Math.Clamp((int)pos.X, 0, 8191);
+            int clampedMoveZ = Math.Clamp((int)pos.Y, 0, 8191);
+
+            ObjectSpace.UiPixelsToGamePrim(clampedMoveX, clampedMoveZ, out int moveTargetIndex, out byte moveGameX, out byte moveGameZ);
+            ObjectSpace.GameIndexToUiRowCol(moveTargetIndex, out int moveUiRow, out int moveUiCol);
+            ObjectSpace.GamePrimToUiPixels(moveTargetIndex, moveGameX, moveGameZ, out int movePx, out int movePz);
 
             var src = vm.Prims[_draggedIndex];
 
-            // Keep our own ghost snapshot for commit
             _ghost = new PrimListItem
             {
                 Index = src.Index,
-                MapWhoIndex = targetIndex,
-                MapWhoRow = uiRow,
-                MapWhoCol = uiCol,
+                MapWhoIndex = moveTargetIndex,
+                MapWhoRow = moveUiRow,
+                MapWhoCol = moveUiCol,
                 PrimNumber = src.PrimNumber,
                 Name = src.Name,
                 Y = src.Y,
-                X = gameX,
-                Z = gameZ,
+                X = moveGameX,
+                Z = moveGameZ,
                 Yaw = src.Yaw,
                 Flags = src.Flags,
                 InsideIndex = src.InsideIndex,
-                PixelX = px,
-                PixelZ = pz
+                PixelX = movePx,
+                PixelZ = movePz
             };
 
-            // Render dashed move ghost
             vm.DragPreviewPrim = _ghost;
 
-            Debug.WriteLine($"[PrimsLayer] Ghost → cell={targetIndex} (r{uiRow},c{uiCol}) game X={gameX},Z={gameZ} ui=({px},{pz}) from Prim.Index={src.Index}");
+            Log($"[PrimsLayer] Ghost → cell={moveTargetIndex} (r{moveUiRow},c{moveUiCol}) game X={moveGameX},Z={moveGameZ} ui=({movePx},{movePz}) from Prim.Index={src.Index}");
             InvalidateVisual();
         }
 
         protected override void OnPreviewMouseLeftButtonUp(MouseButtonEventArgs e)
         {
             base.OnPreviewMouseLeftButtonUp(e);
-            if (DataContext is not MapViewModel vm) { Debug.WriteLine("[PrimsLayer] PMUp: no VM"); return; }
+            if (DataContext is not MapViewModel vm) { Log("[PrimsLayer] PMUp: no VM"); return; }
 
             // --- Finish yaw edit (commit) ---
             if (_yawEditing && _pressedItem != null)
@@ -404,22 +432,23 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
 
                     vm.RefreshPrimsList();
 
-                    // try to reselect same index
                     PrimListItem? toSelect = null;
                     if (_pressedItem.Index >= 0 && _pressedItem.Index < vm.Prims.Count)
                         toSelect = vm.Prims[_pressedItem.Index];
+
                     vm.SelectedPrim = toSelect;
 
-                    var shell = Application.Current.MainWindow?.DataContext as MainWindowViewModel;
-                    if (shell != null) shell.StatusMessage = $"Set yaw to {finalYaw}/255";
+                    if (Application.Current.MainWindow?.DataContext is MainWindowViewModel shell)
+                        shell.StatusMessage = $"Set yaw to {finalYaw}/255";
                 }
                 catch (Exception ex)
                 {
-                    var shell = Application.Current.MainWindow?.DataContext as MainWindowViewModel;
-                    if (shell != null) shell.StatusMessage = "Yaw update failed.";
-                    Debug.WriteLine($"[PrimsLayer] Yaw update failed: {ex}");
+                    if (Application.Current.MainWindow?.DataContext is MainWindowViewModel shell)
+                        shell.StatusMessage = "Yaw update failed.";
+                    Log($"[PrimsLayer] Yaw update failed: {ex}");
                 }
 
+                // cleanup yaw state
                 vm.DragPreviewPrim = null;
                 _yawEditing = false;
                 _pressedIndex = -1;
@@ -431,25 +460,38 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
                 return;
             }
 
-            // --- Existing move commit path ---
-            ReleaseMouseCapture();
-            Debug.WriteLine($"[PrimsLayer] PMUp: down={_mouseDown}, isDragging={_isDragging}, idx={_draggedIndex}, ghostLocal={_ghost != null}, ghostVm={vm.DragPreviewPrim != null}");
+            // --- Move commit path (FIXED) ---
+            // IMPORTANT: snapshot state BEFORE releasing capture (release can trigger LostMouseCapture)
+            bool wasDown = _mouseDown;
+            bool wasDragging = _isDragging;
+            int draggedIdx = _draggedIndex;
+            var ghost = _ghost;
 
-            if (_isDragging && _draggedIndex >= 0 && _ghost != null)
+            Log($"[PrimsLayer] PMUp(pre): down={wasDown}, isDragging={wasDragging}, idx={draggedIdx}, ghostLocal={ghost != null}, ghostVm={vm.DragPreviewPrim != null}");
+
+            if (wasDragging && draggedIdx >= 0 && ghost != null)
             {
-                var g = _ghost;
-                Debug.WriteLine($"[PrimsLayer] Commit MovePrim: primEntryIdx={g.Index}, mapWho={g.MapWhoIndex}, X={g.X}, Z={g.Z}");
+                try
+                {
+                    Log($"[PrimsLayer] Commit MovePrim: primEntryIdx={ghost.Index}, mapWho={ghost.MapWhoIndex}, X={ghost.X}, Z={ghost.Z}");
 
-                var acc = new ObjectsAccessor(MapDataService.Instance);
-                acc.MovePrim(g.Index, g.MapWhoIndex, g.X, g.Z);
-                vm.RefreshPrimsList();
-                Debug.WriteLine("[PrimsLayer] RefreshPrimsList after move.");
+                    var acc = new ObjectsAccessor(MapDataService.Instance);
+                    acc.MovePrim(ghost.Index, ghost.MapWhoIndex, ghost.X, ghost.Z);
+
+                    vm.RefreshPrimsList();
+                    Log("[PrimsLayer] RefreshPrimsList after move.");
+                }
+                catch (Exception ex)
+                {
+                    Log($"[PrimsLayer] Move commit failed: {ex}");
+                }
             }
             else
             {
-                Debug.WriteLine("[PrimsLayer] No commit.");
+                Log("[PrimsLayer] No commit.");
             }
 
+            // cleanup move state
             vm.DragPreviewPrim = null;
             _ghost = null;
             _mouseDown = false;
@@ -457,23 +499,31 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
             _draggedIndex = -1;
             _pressedIndex = -1;
             _pressedItem = null;
+
+            if (IsMouseCaptured) ReleaseMouseCapture();
             InvalidateVisual();
+            e.Handled = true;
         }
 
         protected override void OnLostMouseCapture(MouseEventArgs e)
         {
             base.OnLostMouseCapture(e);
-            Debug.WriteLine($"[PrimsLayer] LostMouseCapture. state: yaw={_yawEditing} down={_mouseDown} drag={_isDragging} idx={_draggedIndex} ghostLocal={_ghost != null}");
-            // Reset yaw state if capture is stolen mid-edit
+
+            // Only cancel yaw if capture is stolen mid-yaw-edit
             if (_yawEditing)
             {
                 _yawEditing = false;
                 _pressedIndex = -1;
                 _pressedItem = null;
-                if (_vm != null) _vm.DragPreviewPrim = null;
+
+                if (_vm != null)
+                    _vm.DragPreviewPrim = null;
+
                 InvalidateVisual();
             }
-            // Do not alter move state here; your existing PMUp path decides commit/no-commit.
+
+            // DO NOT cancel move drag here.
+            // MouseUp handles commit/no-commit + cleanup reliably.
         }
 
         // Your existing OnMouseDown handler (dialog / selection) remains;

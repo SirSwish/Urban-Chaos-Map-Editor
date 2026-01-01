@@ -27,11 +27,13 @@
         <KeyBinding Gesture="Ctrl+Shift+S" Command="{Binding SaveAsMapCommand}" />
         <KeyBinding Gesture="Ctrl+N" Command="{Binding NewMapCommand}" />
         <KeyBinding Gesture="Ctrl+G" Command="{Binding ToggleGridLinesCommand}" />
+        <KeyBinding Gesture="Ctrl+B" Command="{Binding ToggleBuildingsCommand}" />
         <KeyBinding Gesture="Ctrl+M" Command="{Binding ToggleMapWhoCommand}" />
         <KeyBinding Gesture="Ctrl+0" Command="{Binding ResetZoomCommand}" />
         <KeyBinding Gesture="Ctrl+H" Command="{Binding ToggleHeightsCommand}" />
         <KeyBinding Gesture="Ctrl+T" Command="{Binding ToggleTexturesCommand}" />
         <KeyBinding Gesture="Ctrl+J" Command="{Binding ToggleObjectsCommand}" />
+        <KeyBinding Gesture="Ctrl+Y" Command="{Binding TogglePrimGraphicsCommand}" />
         <KeyBinding Key="Delete" Command="{Binding DeletePrimCommand}" />
         <KeyBinding Modifiers="Control" Key="L" Command="{Binding ToggleLightsCommand}" />
     </Window.InputBindings>
@@ -296,6 +298,17 @@
                     </MenuItem.Icon>
                 </MenuItem>
 
+                <MenuItem Header="_Prim Graphics"
+                          IsCheckable="True"
+                          IsChecked="{Binding Map.ShowPrimGraphics}"
+                          Command="{Binding TogglePrimGraphicsCommand}"
+                          CommandParameter="{Binding IsChecked, RelativeSource={RelativeSource Self}}"
+                          InputGestureText="Ctrl+Y">
+                    <MenuItem.Icon>
+                        <Image Source="/Assets/Icons/showobjects.ico" Width="16" Height="16"/>
+                    </MenuItem.Icon>
+                </MenuItem>
+
                 <!-- MapWho -->
                 <MenuItem Header="_MapWho"
                           IsCheckable="True"
@@ -306,6 +319,16 @@
                     <MenuItem.Icon>
                         <Image Source="/Assets/Icons/showmapwho.ico" Width="16" Height="16"/>
                     </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="_Buildings"
+                          IsCheckable="True"
+                          IsChecked="{Binding Map.ShowBuildings}"
+                          Command="{Binding ToggleBuildingsCommand}"
+                          CommandParameter="{Binding IsChecked, RelativeSource={RelativeSource Self}}"
+                          InputGestureText="Ctrl+B">
+                                    <MenuItem.Icon>
+                                        <Image Source="/Assets/Icons/showbuildings.ico" Width="16" Height="16"/>
+                                    </MenuItem.Icon>
                 </MenuItem>
 
                 <MenuItem Header="_Heights"
@@ -434,12 +457,13 @@
         <!-- CENTER: editor drawer (left) + map (right) -->
         <Grid>
             <Grid.ColumnDefinitions>
-                <!-- Drawer column (resizable) -->
-                <ColumnDefinition x:Name="EditorCol" Width="25.333"/>
-                <ColumnDefinition Width="259.667"/>
-                <!-- Splitter column -->
+                <!-- rail -->
+                <ColumnDefinition x:Name="EditorRailCol" Width="28"/>
+                <!-- drawer content -->
+                <ColumnDefinition x:Name="EditorDrawerCol" Width="285"/>
+                <!-- splitter -->
                 <ColumnDefinition Width="6"/>
-                <!-- Main content -->
+                <!-- main -->
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
