@@ -101,6 +101,7 @@ namespace UrbanChaosMapEditor.ViewModels
         public ICommand SaveAsMapCommand { get; }
         public ICommand ToggleGridLinesCommand { get; }
         public ICommand ToggleBuildingsCommand { get; }
+        public ICommand ToggleWalkablesCommand { get; }
         public ICommand ToggleMapWhoCommand { get; }
         public ICommand ResetZoomCommand { get; }
         public ICommand ExitCommand { get; }
@@ -381,6 +382,11 @@ namespace UrbanChaosMapEditor.ViewModels
             {
                 if (p is bool b) Map.ShowBuildings = b;    // menu click passes new checked state
                 else Map.ShowBuildings = !Map.ShowBuildings; // keyboard shortcut toggles
+            }, _ => true);
+            ToggleWalkablesCommand = new RelayCommand(p =>
+            {
+                if (p is bool b) Map.ShowWalkables = b;    // menu click passes new checked state
+                else Map.ShowWalkables = !Map.ShowWalkables; // keyboard shortcut toggles
             }, _ => true);
 
             ToggleObjectsCommand = new RelayCommand(p =>

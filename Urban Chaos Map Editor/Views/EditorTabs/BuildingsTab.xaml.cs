@@ -57,7 +57,14 @@ namespace UrbanChaosMapEditor.Views.EditorTabs
             {
                 vm.HandleBuildingTreeSelection(e.NewValue);
             }
+
+            // >>> ADD THIS (clear walkable selection on building change)
+            if (Application.Current.MainWindow?.DataContext is MainWindowViewModel shell)
+            {
+                shell.Map.SelectedWalkableId1 = 0;
+            }
         }
+
 
         private static T? FindAncestor<T>(DependencyObject current)
             where T : DependencyObject
@@ -150,5 +157,74 @@ namespace UrbanChaosMapEditor.Views.EditorTabs
                 e.Handled = true;
             }
         }
+
+        private void WalkablesList_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (DataContext is not BuildingsTabViewModel vm)
+                return;
+
+            if (sender is not ListView lv)
+                return;
+
+            vm.HandleWalkableSelection(lv.SelectedItem);
+
+            // >>> ADD THIS (bridge to the actual map VM the overlay is listening to)
+            if (Application.Current.MainWindow?.DataContext is MainWindowViewModel shell)
+            {
+                shell.Map.SelectedWalkableId1 =
+                    (lv.SelectedItem as BuildingsTabViewModel.WalkableVM)?.WalkableId1 ?? 0;
+            }
+        }
+
+        private void WalkablesList_OnMouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (DataContext is not BuildingsTabViewModel vm)
+                return;
+
+            if (WalkablesList.SelectedItem is not BuildingsTabViewModel.WalkableVM wrow)
+                return;
+
+            // Get raw arrays
+            if (!MapDataService.Instance.TryGetWalkables(out var walkables, out var roofFaces4))
+                return;
+
+            int id1 = wrow.WalkableId1;
+            if (id1 < 1 || id1 >= walkables.Length) // 0 is sentinel
+                return;
+
+            var dlg = new WalkablePreviewWindow(id1, walkables[id1], roofFaces4)
+            {
+                Owner = Application.Current.MainWindow
+            };
+            dlg.Show();
+
+            e.Handled = true;
+        }
+
+        private void RoofFaces4List_OnMouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (DataContext is not BuildingsTabViewModel vm)
+                return;
+
+            if (RoofFaces4List.SelectedItem is not BuildingsTabViewModel.RoofFace4VM rrow)
+                return;
+
+            if (!MapDataService.Instance.TryGetWalkables(out _, out var roofFaces4))
+                return;
+
+            int idx = rrow.FaceId; // keep consistent with your VM’s FaceId meaning
+            if (idx < 0 || idx >= roofFaces4.Length)
+                return;
+
+            var dlg = new RoofFace4PreviewWindow(idx, roofFaces4[idx])
+            {
+                Owner = Application.Current.MainWindow
+            };
+            dlg.Show();
+
+            e.Handled = true;
+        }
+
+
     }
 }

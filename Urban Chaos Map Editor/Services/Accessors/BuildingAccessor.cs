@@ -19,6 +19,12 @@ namespace UrbanChaosMapEditor.Services
         private const int HeaderSize = 48;
         private const int DBuildingSize = 24;
         private const int AfterBuildingsPad = 14;
+        private const int InsideStoreySize = 22;
+        private const int StaircaseSize = 10;
+        private const int DWalkableSize = 22;
+        private const int RoofFace4Size = 10;
+
+
 
         public const int DFacetSize = 26; // expose for callers
         private const int DStoreyRecSize = 6;  // U16 Style; U16 PaintIndex; SBYTE Count; UBYTE pad
@@ -35,6 +41,9 @@ namespace UrbanChaosMapEditor.Services
 
         /// <summary>Raised whenever the underlying building bytes may have changed.</summary>
         public event EventHandler? BuildingsBytesReset;
+
+        public static int ReadS32(byte[] b, int off)
+=> b[off] | (b[off + 1] << 8) | (b[off + 2] << 16) | (b[off + 3] << 24);
 
         /// <summary>
         /// Returns a full, immutable snapshot of the building block:
@@ -60,12 +69,18 @@ namespace UrbanChaosMapEditor.Services
                 NextDStyle = 0,
                 NextPaintMem = 0,
                 NextDStorey = 0,
-                SaveType = 0
+                SaveType = 0,
+
+                TailOffset = -1,
+                TailBytes = Array.Empty<byte>(),
+
+                InsideStoreys = Array.Empty<BuildingArrays.InsideStoreyRec>(),
+                InsideStairs = Array.Empty<BuildingArrays.StaircaseRec>(),
+                WalkablesOffset = -1,
             };
 
             if (!_svc.IsLoaded) return empty;
 
-            // Same region math as renderer (cached on the service)
             _svc.ComputeAndCacheBuildingRegion();
             if (!_svc.TryGetBuildingRegion(out int start, out int len)) return empty;
 
@@ -74,14 +89,13 @@ namespace UrbanChaosMapEditor.Services
 
             int saveType = BitConverter.ToInt32(bytes, 0);
 
-            // Header counters (1-based where noted)
-            ushort nextDBuilding = ReadU16(bytes, start + 2);   // DBuildings 1-based count
-            ushort nextDFacet = ReadU16(bytes, start + 4);   // DFacets    1-based count
-            ushort nextDStyle = ReadU16(bytes, start + 6);   // dstyles    full count incl. 0
+            // Header counters
+            ushort nextDBuilding = ReadU16(bytes, start + 2);
+            ushort nextDFacet = ReadU16(bytes, start + 4);
+            ushort nextDStyle = ReadU16(bytes, start + 6);
             ushort nextPaintMem = (saveType >= 17) ? ReadU16(bytes, start + 8) : (ushort)0;
             ushort nextDStorey = (saveType >= 17) ? ReadU16(bytes, start + 10) : (ushort)0;
 
-            // --- DEBUG: header / region ---
             Debug.WriteLine($"[BuildingsAccessor] saveType={saveType}  nextDBuilding={nextDBuilding} nextDFacet={nextDFacet} nextDStyle={nextDStyle} nextPaintMem={nextPaintMem} nextDStorey={nextDStorey}");
             Debug.WriteLine($"[BuildingsAccessor] region start=0x{start:X} len=0x{len:X}");
 
@@ -97,8 +111,7 @@ namespace UrbanChaosMapEditor.Services
             long facetsEnd = cursor + (long)totalFacets * DFacetSize;
             if (facetsOff < start || facetsEnd > blockEnd)
             {
-                Debug.WriteLine($"[BuildingsAccessor] Bad facet bounds: start=0x{start:X} len={len} " +
-                                $"facetsOff=0x{facetsOff:X} facetsEnd=0x{facetsEnd:X} blockEnd=0x{blockEnd:X}");
+                Debug.WriteLine($"[BuildingsAccessor] Bad facet bounds: start=0x{start:X} len={len} facetsOff=0x{facetsOff:X} facetsEnd=0x{facetsEnd:X} blockEnd=0x{blockEnd:X}");
                 return empty;
             }
 
@@ -108,19 +121,20 @@ namespace UrbanChaosMapEditor.Services
             {
                 int off = buildingsOff + i * DBuildingSize;
 
+                Debug.WriteLine($"[BuildingsAccessor] DBuilding#{i + 1} raw @ 0x{off:X}: {DumpHex(bytes, off, DBuildingSize)}");
+
                 ushort startFacet = ReadU16(bytes, off + 0);
                 ushort endFacet = ReadU16(bytes, off + 2);
 
                 int worldX = BitConverter.ToInt32(bytes, off + 4);
-                int worldY = BitConverter.ToInt32(bytes, off + 8);
+                int worldY = ReadS24(bytes, off + 8);
+                byte type = bytes[off + 11];
                 int worldZ = BitConverter.ToInt32(bytes, off + 12);
 
                 ushort walkable = ReadU16(bytes, off + 16);
                 byte counter0 = bytes[off + 18];
                 byte counter1 = bytes[off + 19];
-                // ushort padding = ReadU16(bytes, off + 20); // currently ignored
                 byte ware = bytes[off + 22];
-                byte type = bytes[off + 23];
 
                 buildings[i] = new DBuildingRec(
                     worldX, worldY, worldZ,
@@ -130,7 +144,7 @@ namespace UrbanChaosMapEditor.Services
                     ware, type);
             }
 
-            // ---- DFacets (FULL 26B LAYOUT) ----
+            // ---- DFacets ----
             var facets = new DFacetRec[totalFacets];
             for (int i = 0; i < totalFacets; i++)
             {
@@ -148,15 +162,12 @@ namespace UrbanChaosMapEditor.Services
 
                 var flags = (FacetFlags)ReadU16(bytes, off + 10);
 
-                // NOTE:
-                //  - Non-cables: StyleIndex = index into dstyles[], Building = 1-based building id.
-                //  - Cables:     StyleIndex = step_angle1 (SWORD),   Building = step_angle2 (SWORD).
                 ushort sty = ReadU16(bytes, off + 12);
                 ushort bld = ReadU16(bytes, off + 14);
 
-                ushort st = ReadU16(bytes, off + 16); // DStorey id (1-based) or 0
+                ushort st = ReadU16(bytes, off + 16);
 
-                byte fh = bytes[off + 18]; // fine height; for cables this is the “mode”
+                byte fh = bytes[off + 18];
                 byte blockH = bytes[off + 19];
                 byte open = bytes[off + 20];
                 byte dfcache = bytes[off + 21];
@@ -173,31 +184,25 @@ namespace UrbanChaosMapEditor.Services
             }
             cursor = facetsEnd;
 
-            // --- DEBUG: sample facet ---
             if (totalFacets > 0)
             {
                 var f0 = facets[0];
-                Debug.WriteLine(
-                    $"[BuildingsAccessor] first facet: id=1 type={f0.Type} bld={f0.Building} st={f0.Storey} styIdx={f0.StyleIndex} xy=({f0.X0},{f0.Z0})->({f0.X1},{f0.Z1})");
+                Debug.WriteLine($"[BuildingsAccessor] first facet: id=1 type={f0.Type} bld={f0.Building} st={f0.Storey} styIdx={f0.StyleIndex} xy=({f0.X0},{f0.Z0})->({f0.X1},{f0.Z1})");
             }
             else
             {
                 Debug.WriteLine("[BuildingsAccessor] no facets parsed.");
             }
 
-            // ---- Cables: extract from DFacets ----
+            // ---- Cables ----
             var cablesList = new List<CableFacet>();
             for (int i = 0; i < facets.Length; i++)
             {
                 var f = facets[i];
-                if (!f.IsCable)
-                    continue;
+                if (!f.IsCable) continue;
 
-                // Facet indices are 1-based in the engine / DBuilding ranges
                 int facetId1 = i + 1;
 
-                // World coordinates as used by the engine:
-                // x_world = x * 256, z_world = z * 256, y already world Y.
                 int wx1 = f.X0 * 256;
                 int wy1 = f.Y0;
                 int wz1 = f.Z0 * 256;
@@ -208,7 +213,7 @@ namespace UrbanChaosMapEditor.Services
 
                 int buildingIndex = FindBuildingIndexForFacet(buildings, facetId1);
 
-                var cable = new CableFacet
+                cablesList.Add(new CableFacet
                 {
                     FacetIndex = facetId1,
                     WorldX1 = wx1,
@@ -218,21 +223,18 @@ namespace UrbanChaosMapEditor.Services
                     WorldY2 = wy2,
                     WorldZ2 = wz2,
                     SegmentCount = f.CableSegments,
-                    // FHeight is the “mode” (engine multiplies by 64 when computing sag)
                     SagBase = (short)f.FHeight,
                     SagAngleDelta1 = f.CableStep1Signed,
                     SagAngleDelta2 = f.CableStep2Signed,
                     BuildingIndex = buildingIndex,
                     RawFacet = f
-                };
-
-                cablesList.Add(cable);
+                });
             }
 
             var cables = cablesList.ToArray();
             Debug.WriteLine($"[BuildingsAccessor] Extracted cables={cables.Length}");
 
-            // ---- dstyles (S16[nextDStyle]) ----
+            // ---- dstyles ----
             short[] styles = Array.Empty<short>();
             if (nextDStyle > 0)
             {
@@ -251,7 +253,7 @@ namespace UrbanChaosMapEditor.Services
                 }
             }
 
-            // ---- paint_mem (UBYTE[nextPaintMem]) ----
+            // ---- paint_mem ----
             byte[] paintMem = Array.Empty<byte>();
             if (saveType >= 17 && nextPaintMem > 0)
             {
@@ -268,7 +270,7 @@ namespace UrbanChaosMapEditor.Services
                 }
             }
 
-            // ---- dstoreys (DStorey[nextDStorey]) ----
+            // ---- dstoreys ----
             var storeys = Array.Empty<BuildingArrays.DStoreyRec>();
             if (saveType >= 17 && nextDStorey > 0)
             {
@@ -283,7 +285,7 @@ namespace UrbanChaosMapEditor.Services
 
                         ushort style = ReadU16(bytes, off + 0);
                         ushort index = ReadU16(bytes, off + 2);
-                        sbyte count = unchecked((sbyte)bytes[off + 4]); // signed, matches SBYTE
+                        sbyte count = unchecked((sbyte)bytes[off + 4]);
                         byte padding = bytes[off + 5];
 
                         storeys[i] = new BuildingArrays.DStoreyRec(style, index, count, padding);
@@ -296,27 +298,286 @@ namespace UrbanChaosMapEditor.Services
                 }
             }
 
-            // --- DEBUG: parsed summary ---
-            Debug.WriteLine($"[BuildingsAccessor] Parsed: buildings={totalBuildings} facets={totalFacets} styles={styles.Length} paintMem={paintMem.Length} storeys={storeys.Length}");
+            int indoorsStart = -1;
+            int walkablesStart = -1;
+
+            // Indoors outputs
+            int nextInsideStorey = 0, nextInsideStair = 0, nextInsideBlock = 0;
+            byte[] insideStoreysRaw = Array.Empty<byte>();
+            byte[] insideStairsRaw = Array.Empty<byte>();
+            byte[] insideBlock = Array.Empty<byte>();
+            BuildingArrays.InsideStoreyRec[] insideStoreys = Array.Empty<BuildingArrays.InsideStoreyRec>();
+            BuildingArrays.StaircaseRec[] insideStairs = Array.Empty<BuildingArrays.StaircaseRec>();
+
+            // Walkables outputs
+            ushort nextDWalkable = 0, nextRoofFace4 = 0;
+            byte[] dwalkablesRaw = Array.Empty<byte>();
+            byte[] roofFacesRaw = Array.Empty<byte>();
+            DWalkableRec[] walkables = Array.Empty<DWalkableRec>();
+            RoofFace4Rec[] roofFaces4 = Array.Empty<RoofFace4Rec>();
+
+            static short ReadS16(byte[] b, int off) => BitConverter.ToInt16(b, off);
+            static sbyte ReadS8(byte[] b, int off) => unchecked((sbyte)b[off]);
+
+            // ---- Indoors chunk (optional) ----
+            if (saveType >= 21)
+            {
+                indoorsStart = (int)cursor;
+
+                // IMPORTANT: your evidence shows these are U16, not S32.
+                // Layout appears: U16 storey, U16 stair, U16 blockBytes, U16 pad(0)
+                if (cursor + 8 <= blockEnd)
+                {
+                    nextInsideStorey = ReadU16(bytes, (int)cursor + 0);
+                    nextInsideStair = ReadU16(bytes, (int)cursor + 2);
+                    nextInsideBlock = ReadU16(bytes, (int)cursor + 4);
+                    // pad at +6 (often 0)
+                    cursor += 8;
+
+                    long storeysBytes = (long)nextInsideStorey * InsideStoreySize;
+                    long stairsBytes = (long)nextInsideStair * StaircaseSize;
+                    long blockBytes = (long)nextInsideBlock;
+
+                    long indoorsEnd = cursor + storeysBytes + stairsBytes + blockBytes;
+
+                    if (indoorsEnd <= blockEnd)
+                    {
+                        // Raw capture
+                        if (storeysBytes > 0)
+                        {
+                            insideStoreysRaw = new byte[storeysBytes];
+                            Buffer.BlockCopy(bytes, (int)cursor, insideStoreysRaw, 0, (int)storeysBytes);
+                        }
+                        cursor += storeysBytes;
+
+                        if (stairsBytes > 0)
+                        {
+                            insideStairsRaw = new byte[stairsBytes];
+                            Buffer.BlockCopy(bytes, (int)cursor, insideStairsRaw, 0, (int)stairsBytes);
+                        }
+                        cursor += stairsBytes;
+
+                        if (blockBytes > 0)
+                        {
+                            insideBlock = new byte[blockBytes];
+                            Buffer.BlockCopy(bytes, (int)cursor, insideBlock, 0, (int)blockBytes);
+                        }
+                        cursor += blockBytes;
+
+                        // Typed parse (includes dummy [0] entry; engine is 1-based)
+                        if (nextInsideStorey > 0)
+                        {
+                            insideStoreys = new BuildingArrays.InsideStoreyRec[nextInsideStorey];
+                            int baseOff = (int)(cursor - (storeysBytes + stairsBytes + blockBytes) - storeysBytes - stairsBytes - blockBytes); // not used
+                                                                                                                                               // easier: parse from insideStoreysRaw
+                            for (int i = 0; i < nextInsideStorey; i++)
+                            {
+                                int off = i * InsideStoreySize;
+                                insideStoreys[i] = new BuildingArrays.InsideStoreyRec(
+                                    insideStoreysRaw[off + 0],
+                                    insideStoreysRaw[off + 1],
+                                    insideStoreysRaw[off + 2],
+                                    insideStoreysRaw[off + 3],
+                                    (ushort)(insideStoreysRaw[off + 4] | (insideStoreysRaw[off + 5] << 8)),
+                                    (ushort)(insideStoreysRaw[off + 6] | (insideStoreysRaw[off + 7] << 8)),
+                                    (ushort)(insideStoreysRaw[off + 8] | (insideStoreysRaw[off + 9] << 8)),
+                                    (ushort)(insideStoreysRaw[off + 10] | (insideStoreysRaw[off + 11] << 8)),
+                                    (ushort)(insideStoreysRaw[off + 12] | (insideStoreysRaw[off + 13] << 8)),
+                                    (short)(insideStoreysRaw[off + 14] | (insideStoreysRaw[off + 15] << 8)),
+                                    (ushort)(insideStoreysRaw[off + 16] | (insideStoreysRaw[off + 17] << 8)),
+                                    (ushort)(insideStoreysRaw[off + 18] | (insideStoreysRaw[off + 19] << 8)),
+                                    (ushort)(insideStoreysRaw[off + 20] | (insideStoreysRaw[off + 21] << 8))
+                                );
+                            }
+                        }
+
+                        if (nextInsideStair > 0)
+                        {
+                            insideStairs = new BuildingArrays.StaircaseRec[nextInsideStair];
+                            for (int i = 0; i < nextInsideStair; i++)
+                            {
+                                int off = i * StaircaseSize;
+                                insideStairs[i] = new BuildingArrays.StaircaseRec(
+                                    insideStairsRaw[off + 0],
+                                    insideStairsRaw[off + 1],
+                                    insideStairsRaw[off + 2],
+                                    insideStairsRaw[off + 3],
+                                    (short)(insideStairsRaw[off + 4] | (insideStairsRaw[off + 5] << 8)),
+                                    (short)(insideStairsRaw[off + 6] | (insideStairsRaw[off + 7] << 8)),
+                                    (short)(insideStairsRaw[off + 8] | (insideStairsRaw[off + 9] << 8))
+                                );
+                            }
+                        }
+
+                        Debug.WriteLine($"[BuildingsAccessor] Indoors parsed: next_storey={nextInsideStorey} next_stair={nextInsideStair} next_block={nextInsideBlock}");
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"[BuildingsAccessor] Indoors OOB: storey={nextInsideStorey} stair={nextInsideStair} block={nextInsideBlock} cursor=0x{cursor:X} blockEnd=0x{blockEnd:X}");
+                    }
+                }
+            }
+
+            // ---- Walkables chunk ----
+            walkablesStart = (int)cursor;
+
+            if (cursor + 4 <= blockEnd)
+            {
+                nextDWalkable = ReadU16(bytes, (int)cursor + 0);
+                nextRoofFace4 = ReadU16(bytes, (int)cursor + 2);
+                cursor += 4;
+
+                long dwBytes = (long)nextDWalkable * DWalkableSize;
+                long rfBytes = (long)nextRoofFace4 * RoofFace4Size;
+
+                long walkEnd = cursor + dwBytes + rfBytes;
+                if (walkEnd <= blockEnd)
+                {
+                    // Raw
+                    if (dwBytes > 0)
+                    {
+                        dwalkablesRaw = new byte[dwBytes];
+                        Buffer.BlockCopy(bytes, (int)cursor, dwalkablesRaw, 0, (int)dwBytes);
+                    }
+                    cursor += dwBytes;
+
+                    if (rfBytes > 0)
+                    {
+                        roofFacesRaw = new byte[rfBytes];
+                        Buffer.BlockCopy(bytes, (int)cursor, roofFacesRaw, 0, (int)rfBytes);
+                    }
+                    cursor += rfBytes;
+
+                    // Typed (includes dummy [0]; engine is 1-based)
+                    if (nextDWalkable > 0)
+                    {
+                        walkables = new DWalkableRec[nextDWalkable];
+                        for (int i = 0; i < nextDWalkable; i++)
+                        {
+                            int off = i * DWalkableSize;
+                            walkables[i] = new DWalkableRec(
+                                (ushort)(dwalkablesRaw[off + 0] | (dwalkablesRaw[off + 1] << 8)),
+                                (ushort)(dwalkablesRaw[off + 2] | (dwalkablesRaw[off + 3] << 8)),
+                                (ushort)(dwalkablesRaw[off + 4] | (dwalkablesRaw[off + 5] << 8)),
+                                (ushort)(dwalkablesRaw[off + 6] | (dwalkablesRaw[off + 7] << 8)),
+                                (ushort)(dwalkablesRaw[off + 8] | (dwalkablesRaw[off + 9] << 8)),
+                                (ushort)(dwalkablesRaw[off + 10] | (dwalkablesRaw[off + 11] << 8)),
+                                dwalkablesRaw[off + 12],
+                                dwalkablesRaw[off + 13],
+                                dwalkablesRaw[off + 14],
+                                dwalkablesRaw[off + 15],
+                                dwalkablesRaw[off + 16],
+                                dwalkablesRaw[off + 17],
+                                (ushort)(dwalkablesRaw[off + 18] | (dwalkablesRaw[off + 19] << 8)),
+                                (ushort)(dwalkablesRaw[off + 20] | (dwalkablesRaw[off + 21] << 8))
+                            );
+                        }
+                    }
+
+                    if (nextRoofFace4 > 0)
+                    {
+                        roofFaces4 = new RoofFace4Rec[nextRoofFace4];
+                        for (int i = 0; i < nextRoofFace4; i++)
+                        {
+                            int off = i * RoofFace4Size;
+                            roofFaces4[i] = new RoofFace4Rec(
+                                (short)(roofFacesRaw[off + 0] | (roofFacesRaw[off + 1] << 8)),
+                                unchecked((sbyte)roofFacesRaw[off + 2]),
+                                unchecked((sbyte)roofFacesRaw[off + 3]),
+                                unchecked((sbyte)roofFacesRaw[off + 4]),
+                                roofFacesRaw[off + 5],
+                                roofFacesRaw[off + 6],
+                                roofFacesRaw[off + 7],
+                                (short)(roofFacesRaw[off + 8] | (roofFacesRaw[off + 9] << 8))
+                            );
+                        }
+                    }
+
+                    Debug.WriteLine($"[BuildingsAccessor] Walkables header: next_dwalkable={nextDWalkable} next_roof_face4={nextRoofFace4} at 0x{walkablesStart:X}");
+
+                    for (int i = 1; i < nextDWalkable; i++)
+                    {
+                        var w = walkables[i];
+                        Debug.WriteLine($"[Walkable {i}] face4=[{w.StartFace4}..{w.EndFace4}) " +
+                                        $"rect=({w.X1},{w.Z1})-({w.X2},{w.Z2}) y={w.Y} storeyY={w.StoreyY} " +
+                                        $"next={w.Next} bld={w.Building}");
+                    }
+
+                    for (int i = 1; i < nextRoofFace4; i++)
+                    {
+                        var r = roofFaces4[i];
+                        Debug.WriteLine($"[RoofFace4 {i}] Y={r.Y} DY=({r.DY0},{r.DY1},{r.DY2}) RX={r.RX} RZ={r.RZ} next={r.Next}");
+                    }
+                }
+                else
+                {
+                    Debug.WriteLine($"[BuildingsAccessor] Walkables OOB: dw={nextDWalkable} rf={nextRoofFace4} cursor=0x{cursor:X} blockEnd=0x{blockEnd:X}");
+                }
+            }
+
+
 
             return new BuildingArrays
             {
                 StartOffset = start,
                 Length = len,
                 FacetsStart = facetsOff,
+
                 Buildings = buildings,
                 Facets = facets,
                 Styles = styles,
                 PaintMem = paintMem,
                 Storeys = storeys,
                 Cables = cables,
+
                 NextDBuilding = nextDBuilding,
                 NextDFacet = nextDFacet,
                 NextDStyle = nextDStyle,
                 NextPaintMem = nextPaintMem,
                 NextDStorey = nextDStorey,
-                SaveType = saveType
+                SaveType = saveType,
+
+                IndoorsStart = indoorsStart,
+                WalkablesStart = walkablesStart,
+                NextInsideStorey = nextInsideStorey,
+                NextInsideStair = nextInsideStair,
+                InsideStoreysRaw = insideStoreysRaw,
+                InsideStairsRaw = insideStairsRaw,
+                NextInsideBlock = nextInsideBlock,
+                InsideStoreys = insideStoreys,
+                InsideStairs = insideStairs,
+                InsideBlock = insideBlock,
+                NextDWalkable = nextDWalkable,
+                NextRoofFace4 = nextRoofFace4,
+                DWalkablesRaw = dwalkablesRaw,
+                RoofFaces4Raw = roofFacesRaw,
+                Walkables = walkables,
+                RoofFaces4 = roofFaces4,
             };
+        }
+
+
+        // -------------------- ADD THESE HELPERS INSIDE BuildingsAccessor --------------------
+
+        private static int ReadS24(byte[] b, int off)
+        {
+            int v = b[off + 0] | (b[off + 1] << 8) | (b[off + 2] << 16);
+            // sign-extend 24-bit
+            if ((v & 0x0080_0000) != 0)
+                v |= unchecked((int)0xFF00_0000);
+            return v;
+        }
+
+        private static string DumpHex(byte[] b, int off, int len)
+        {
+            if (off < 0 || len <= 0 || off + len > b.Length) return "<oob>";
+            var sb = new System.Text.StringBuilder(len * 3);
+            for (int i = 0; i < len; i++)
+            {
+                if (i != 0) sb.Append(' ');
+                sb.Append(b[off + i].ToString("X2"));
+            }
+            return sb.ToString();
         }
 
         // ---------- Optional: strict scan helper ----------
@@ -343,6 +604,64 @@ namespace UrbanChaosMapEditor.Services
             return false;
         }
 
+        // ---------- Walkables getters ----------
+
+        /// <summary>Absolute offset of the Walkables header (U16 nextDWalkable, U16 nextRoofFace4).</summary>
+        public bool TryGetWalkablesHeaderOffset(out int headerOffset)
+        {
+            headerOffset = -1;
+            if (!_svc.IsLoaded) return false;
+
+            _svc.ComputeAndCacheBuildingRegion();
+            if (!_svc.TryGetBuildingRegion(out int start, out _)) return false;
+
+            // Cheapest: reuse ReadSnapshot, because it already walks cursor correctly (saveType aware).
+            var snap = ReadSnapshot();
+            if (snap.WalkablesStart < 0) return false;
+
+            headerOffset = snap.WalkablesStart;
+            return true;
+        }
+
+        /// <summary>Compute absolute offset of a 1-based DWalkable entry.</summary>
+        public bool TryGetDWalkableOffset(int walkableId1, out int walkableOffset)
+        {
+            walkableOffset = -1;
+            var snap = ReadSnapshot();
+
+            // snap.NextDWalkable is the "next" index (includes dummy [0])
+            if (snap.WalkablesStart < 0) return false;
+            if (walkableId1 < 1 || walkableId1 >= snap.NextDWalkable) return false;
+
+            // Layout: [U16 nextDWalkable][U16 nextRoofFace4] then DWalkable array
+            walkableOffset = snap.WalkablesStart + 4 + (walkableId1 * DWalkableSize);
+            return true;
+        }
+
+        /// <summary>Compute absolute offset of a 1-based RoofFace4 entry.</summary>
+        public bool TryGetRoofFace4Offset(int roofFaceId1, out int roofFaceOffset)
+        {
+            roofFaceOffset = -1;
+            var snap = ReadSnapshot();
+
+            if (snap.WalkablesStart < 0) return false;
+            if (roofFaceId1 < 1 || roofFaceId1 >= snap.NextRoofFace4) return false;
+
+            int roofBase = snap.WalkablesStart + 4 + (snap.NextDWalkable * DWalkableSize);
+            roofFaceOffset = roofBase + (roofFaceId1 * RoofFace4Size);
+            return true;
+        }
+
+        /// <summary>Convenience: returns typed arrays for rendering (includes dummy [0]).</summary>
+        public bool TryGetWalkables(out DWalkableRec[] walkables, out RoofFace4Rec[] roofFaces4)
+        {
+            var snap = ReadSnapshot();
+            walkables = snap.Walkables ?? Array.Empty<DWalkableRec>();
+            roofFaces4 = snap.RoofFaces4 ?? Array.Empty<RoofFace4Rec>();
+            return walkables.Length > 1 || roofFaces4.Length > 1;
+        }
+
+
         // ---------- Editing helpers ----------
         /// <summary>Compute the absolute byte offset of a 1-based facet id.</summary>
         public bool TryGetFacetOffset(int facetId1, out int facetOffset)
@@ -367,6 +686,36 @@ namespace UrbanChaosMapEditor.Services
 
             facetOffset = facetsOff + (facetId1 - 1) * DFacetSize;
             return facetOffset + DFacetSize <= bytes.Length;
+        }
+
+        public bool TryGetBuildingBytes(int buildingId1, out byte[] raw24, out int buildingOffset)
+        {
+            raw24 = Array.Empty<byte>();
+            buildingOffset = -1;
+
+            if (!_svc.IsLoaded) return false;
+
+            _svc.ComputeAndCacheBuildingRegion();
+            if (!_svc.TryGetBuildingRegion(out int start, out int _)) return false;
+
+            var bytes = _svc.GetBytesCopy();
+            if (start < 0 || start + HeaderSize > bytes.Length) return false;
+
+            ushort nextDBuilding = ReadU16(bytes, start + 2);
+            int totalBuildings = Math.Max(0, nextDBuilding - 1);
+
+            if (buildingId1 < 1 || buildingId1 > totalBuildings)
+                return false;
+
+            int buildingsOff = start + HeaderSize;
+            buildingOffset = buildingsOff + (buildingId1 - 1) * DBuildingSize;
+
+            if (buildingOffset < 0 || buildingOffset + DBuildingSize > bytes.Length)
+                return false;
+
+            raw24 = new byte[DBuildingSize];
+            Buffer.BlockCopy(bytes, buildingOffset, raw24, 0, DBuildingSize);
+            return true;
         }
 
         public bool TryUpdateFacetFlags(int facetId1, FacetFlags flags)

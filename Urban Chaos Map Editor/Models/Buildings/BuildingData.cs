@@ -28,6 +28,20 @@ namespace UrbanChaosMapEditor.Models
         // Raw type byte from DBuilding.Type
         public byte Type { get; }
 
+        // Typed view of the raw byte
+        public BuildingType BuildingType => (BuildingType)Type;
+
+        public string TypeDisplay => BuildingType switch
+        {
+            Models.BuildingType.House => "House",
+            Models.BuildingType.Warehouse => "Warehouse",
+            Models.BuildingType.Office => "Office",
+            Models.BuildingType.Apartment => "Apartment",
+            Models.BuildingType.CrateIn => "Crate (In)",
+            Models.BuildingType.CrateOut => "Crate (Out)",
+            _ => $"Unknown ({Type})"
+        };
+
         public bool HasWalkable => Walkable != 0;
 
         // Old ctor kept for any callers that only cared about the facet range
@@ -106,6 +120,16 @@ namespace UrbanChaosMapEditor.Models
         Deg90 = 1 << 13,
         TwoTextured = 1 << 14,
         FenceCut = 1 << 15
+    }
+
+    public enum BuildingType : byte
+    {
+        House = 0,
+        Warehouse = 1,
+        Office = 2,
+        Apartment = 3,
+        CrateIn = 4,
+        CrateOut = 5
     }
 
     // ----- DFacet (expanded to full C struct layout; backward compatible) -----
@@ -249,6 +273,29 @@ namespace UrbanChaosMapEditor.Models
         public DFacetRec RawFacet { get; init; }
     }
 
+    public readonly record struct DWalkableRec(
+        ushort StartPoint,
+        ushort EndPoint,
+        ushort StartFace3,
+        ushort EndFace3,
+        ushort StartFace4,
+        ushort EndFace4,
+        byte X1, byte Z1, byte X2, byte Z2,
+        byte Y,
+        byte StoreyY,
+        ushort Next,
+        ushort Building
+    );
+
+    public readonly record struct RoofFace4Rec(
+        short Y,
+        sbyte DY0, sbyte DY1, sbyte DY2,
+        byte DrawFlags,
+        byte RX,
+        byte RZ,
+        short Next
+    );
+
     // ----- Super-map aggregate we return from the parser -----
     public sealed class BuildingArrays
     {
@@ -257,6 +304,52 @@ namespace UrbanChaosMapEditor.Models
 
         // NEW: absolute start of the facets table
         public int FacetsStart { get; init; }
+
+        // Offsets (debugging)
+        public int IndoorsStart { get; init; }
+        public int WalkablesStart { get; init; }
+
+        public readonly record struct InsideStoreyRec(
+    byte MinX, byte MinZ, byte MaxX, byte MaxZ,
+    ushort InsideBlock, ushort StairCaseHead, ushort TexType,
+    ushort FacetStart, ushort FacetEnd,
+    short StoreyY,
+    ushort Building,
+    ushort Dummy0, ushort Dummy1);
+
+        public readonly record struct StaircaseRec(
+            byte X, byte Z, byte Flags, byte Id,
+            short NextStairs, short DownInside, short UpInside);
+
+        // Indoors (raw until we model it)
+        public int NextInsideStorey { get; init; }
+        public int NextInsideStair { get; init; }
+        public int NextInsideBlock { get; init; }
+
+        // Typed indoors arrays (what the accessor expects)
+        public InsideStoreyRec[] InsideStoreys { get; init; } = Array.Empty<InsideStoreyRec>();
+        public StaircaseRec[] InsideStairs { get; init; } = Array.Empty<StaircaseRec>();
+
+        // Alias / canonical name for “where walkables start”
+        public int WalkablesOffset { get; init; }  // keep WalkablesStart too if you lik
+
+        public byte[] InsideStoreysRaw { get; init; } = Array.Empty<byte>();
+        public byte[] InsideStairsRaw { get; init; } = Array.Empty<byte>();
+        public byte[] InsideBlock { get; init; } = Array.Empty<byte>();
+
+        public int TailOffset { get; init; }        // absolute file offset where tail starts
+        public byte[] TailBytes { get; init; } = Array.Empty<byte>(); // everything after dstoreys within the region
+
+
+        // Walkables (raw until we model it)
+        public ushort NextDWalkable { get; init; }
+        public ushort NextRoofFace4 { get; init; }
+
+        public byte[] DWalkablesRaw { get; init; } = Array.Empty<byte>();
+        public byte[] RoofFaces4Raw { get; init; } = Array.Empty<byte>();
+
+        public DWalkableRec[] Walkables { get; init; } = Array.Empty<DWalkableRec>();
+        public RoofFace4Rec[] RoofFaces4 { get; init; } = Array.Empty<RoofFace4Rec>();
 
         public DBuildingRec[] Buildings { get; init; } = Array.Empty<DBuildingRec>();
         public DFacetRec[] Facets { get; init; } = Array.Empty<DFacetRec>();

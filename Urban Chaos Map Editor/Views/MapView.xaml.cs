@@ -535,14 +535,14 @@ namespace UrbanChaosMapEditor.Views
 
             // 2) Right-side 2-column ramp at dx = +2 and +3, only for dy in [-2..+2]
             // dy → value: -2:-26, -1:-20, 0:-13, +1:-7, +2:0
-            (int dy, sbyte val)[] ramp =
+            var ramp = new[]
             {
-        (-2, -26),
-        (-1, -20),
-        ( 0, -13),
-        ( 1,  -7),
-        ( 2,   0)
-    };
+                (-2, (sbyte)-26),
+                (-1, (sbyte)-20),
+                ( 0, (sbyte)-13),
+                ( 1, (sbyte)-7),
+                ( 2, (sbyte)0)
+            };
 
             foreach (var (dy, val) in ramp)
             {
@@ -592,7 +592,7 @@ namespace UrbanChaosMapEditor.Views
         /// If the mouse is close to a height vertex circle, map it to the corresponding tile (tx,ty).
         /// Circles are centered at (tx+1, ty+1)*64 for tx,ty in [0..127].
         /// </summary>
-        private bool TryGetTileFromVertexHit(Point p, out int tx, out int ty)
+        private static bool TryGetTileFromVertexHit(Point p, out int tx, out int ty)
         {
             tx = ty = -1;
 
@@ -619,7 +619,7 @@ namespace UrbanChaosMapEditor.Views
         }
 
         // Returns true and (vx,vy) in the vertex grid (1..128) if near a vertex circle
-        private bool TryGetVertexIndexFromHit(Point p, out int vx, out int vy)
+        private static bool TryGetVertexIndexFromHit(Point p, out int vx, out int vy)
         {
             vx = vy = -1;
 
@@ -641,7 +641,7 @@ namespace UrbanChaosMapEditor.Views
             return true;
         }
 
-        private void ForEachVertexInBrush(int vx, int vy, int brushSize, Action<int, int> applyByTile)
+        private static void ForEachVertexInBrush(int vx, int vy, int brushSize, Action<int, int> applyByTile)
         {
             // vx,vy are vertex indices (1..128). The tile directly "under" this vertex is (vx-1, vy-1).
             // Center an N×N brush around that tile.

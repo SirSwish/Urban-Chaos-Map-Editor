@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
+using UrbanChaosMapEditor.Models;
 
 namespace UrbanChaosMapEditor.Services.DataServices
 {
@@ -17,6 +18,9 @@ namespace UrbanChaosMapEditor.Services.DataServices
 
         private MapDataService() { }
         private (int Start, int Length) _buildingRegion = (-1, 0);
+
+        private DWalkableRec[]? _cachedWalkables;
+        private RoofFace4Rec[]? _cachedRoofFace4;
 
         public byte[]? MapBytes { get; private set; }
         public string? CurrentPath { get; private set; }
@@ -43,6 +47,7 @@ namespace UrbanChaosMapEditor.Services.DataServices
                 MapBytes = bytes;
                 CurrentPath = full;
                 HasChanges = false;
+                ClearWalkablesCache();
             }
 
             MapLoaded?.Invoke(this, new MapLoadedEventArgs(full, bytes.Length));
@@ -52,12 +57,13 @@ namespace UrbanChaosMapEditor.Services.DataServices
 
         public void NewFromTemplate(byte[] templateBytes)
         {
-            if (templateBytes is null) throw new ArgumentNullException(nameof(templateBytes));
+            ArgumentNullException.ThrowIfNull(templateBytes);
             lock (_sync)
             {
                 MapBytes = (byte[])templateBytes.Clone();
                 CurrentPath = null;
                 HasChanges = true;
+                ClearWalkablesCache();
             }
             MapBytesReset?.Invoke(this, new MapBytesResetEventArgs(templateBytes.Length)); // NEW
             DirtyStateChanged?.Invoke(this, EventArgs.Empty);
@@ -70,6 +76,7 @@ namespace UrbanChaosMapEditor.Services.DataServices
                 MapBytes = null;
                 CurrentPath = null;
                 HasChanges = false;
+                ClearWalkablesCache();
             }
 
             MapCleared?.Invoke(this, EventArgs.Empty);
@@ -80,7 +87,7 @@ namespace UrbanChaosMapEditor.Services.DataServices
         public void ReplaceBytes(byte[] bytes)
         {
             if (bytes is null) throw new ArgumentNullException(nameof(bytes));
-            lock (_sync) { MapBytes = bytes; }
+            lock (_sync) { MapBytes = bytes; ClearWalkablesCache(); }
             MapBytesReset?.Invoke(this, new MapBytesResetEventArgs(bytes.Length)); // NEW
             MarkDirty();
         }
@@ -94,6 +101,7 @@ namespace UrbanChaosMapEditor.Services.DataServices
             if (!IsLoaded) throw new InvalidOperationException("No map loaded.");
 
             lock (_sync) { mutate(MapBytes!); }
+            ClearWalkablesCache();
             MarkDirty();
         }
 
@@ -214,6 +222,48 @@ namespace UrbanChaosMapEditor.Services.DataServices
             DumpHex(bytes, buildingStart, buildingLen);
         }
 
+        public bool TryGetWalkables(out DWalkableRec[] walkables, out RoofFace4Rec[] roofFace4)
+        {
+            walkables = Array.Empty<DWalkableRec>();
+            roofFace4 = Array.Empty<RoofFace4Rec>();
+
+            if (!IsLoaded) return false;
+
+            // If already cached, return it
+            if (_cachedWalkables != null && _cachedRoofFace4 != null)
+            {
+                walkables = _cachedWalkables;
+                roofFace4 = _cachedRoofFace4;
+                return true;
+            }
+
+            // Parse via BuildingsAccessor (correct ctor: it wants MapDataService)
+            var acc = new BuildingsAccessor(this);
+
+            // The arrays are on the SNAPSHOT, not on the accessor
+            var snap = acc.ReadSnapshot();
+
+            // snap.Walkables / snap.RoofFaces4 include the dummy [0] entry (1-based engine)
+            _cachedWalkables = snap.Walkables ?? Array.Empty<DWalkableRec>();
+            _cachedRoofFace4 = snap.RoofFaces4 ?? Array.Empty<RoofFace4Rec>();
+
+            // If the file doesn't contain walkables chunk, these will be empty.
+            // Decide what you want "success" to mean; here: success if either has data beyond dummy.
+            if (_cachedWalkables.Length <= 1 && _cachedRoofFace4.Length <= 1)
+                return false;
+
+            walkables = _cachedWalkables;
+            roofFace4 = _cachedRoofFace4;
+            return true;
+        }
+
+        private void ClearWalkablesCache()
+        {
+            _cachedWalkables = null;
+            _cachedRoofFace4 = null;
+        }
+
+
         public bool TryWriteU16_LE(int offset, ushort value)
         {
             // Write into the live backing buffer (MapBytes), mark dirty, and notify listeners.
@@ -229,6 +279,8 @@ namespace UrbanChaosMapEditor.Services.DataServices
                 HasChanges = true;
                 length = MapBytes.Length; // capture for event outside lock
             }
+
+            ClearWalkablesCache();
 
             // Tell anyone (renderer/VMs) who is watching that the byte content changed.
             MapBytesReset?.Invoke(this, new MapBytesResetEventArgs(length));
@@ -283,6 +335,8 @@ namespace UrbanChaosMapEditor.Services.DataServices
                     $"[Buildings] Failed to determine building region. objectOff=0x{objectOffset:X} fileLen={bytes.Length}");
             }
         }
+
+
 
 
         public bool TryGetBuildingRegion(out int start, out int length)

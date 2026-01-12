@@ -28,8 +28,55 @@ namespace UrbanChaosMapEditor.ViewModels
         /// <summary>Available storey ids for the selected building (ComboBox).</summary>
         public ObservableCollection<int> StoreyFilterOptions { get; } = new();
 
+
+        // ---- Raw DBuildingRec for the selection card ----
+        private DBuildingRec[] _rawBuildings = Array.Empty<DBuildingRec>();
+        // Walkables region (raw arrays cached from MapDataService)
+        private DWalkableRec[] _rawWalkables = Array.Empty<DWalkableRec>();   // [0] sentinel, valid from 1..next-1
+        private RoofFace4Rec[] _rawRoofFaces4 = Array.Empty<RoofFace4Rec>();  // likely [0] sentinel too
+
+
+
+        private DBuildingRec _selectedBuildingRec;
+        public DBuildingRec SelectedBuildingRec
+        {
+            get => _selectedBuildingRec;
+            private set
+            {
+                _selectedBuildingRec = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _hasSelectedBuildingRec;
+        public bool HasSelectedBuildingRec
+        {
+            get => _hasSelectedBuildingRec;
+            private set
+            {
+                _hasSelectedBuildingRec = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private int _selectedBuildingFacetRangeCount;
+        public int SelectedBuildingFacetRangeCount
+        {
+            get => _selectedBuildingFacetRangeCount;
+            private set
+            {
+                _selectedBuildingFacetRangeCount = value;
+                OnPropertyChanged();
+            }
+        }
+
         /// <summary>Flat list of all cable facets (for the cables ListView).</summary>
         public ObservableCollection<FacetVM> CableFacets { get; } = new();
+        /// <summary>Walkables for the currently selected building (ListView).</summary>
+        public ObservableCollection<WalkableVM> SelectedBuildingWalkables { get; } = new();
+
+        /// <summary>RoofFace4 entries for the currently selected walkable (ListView).</summary>
+        public ObservableCollection<RoofFace4VM> SelectedWalkableRoofFaces4 { get; } = new();
 
         /// <summary>Toggle: false = building facets view, true = cable list view.</summary>
         private bool _showCablesList;
@@ -121,6 +168,47 @@ namespace UrbanChaosMapEditor.ViewModels
             }
         }
 
+        private WalkableVM? _selectedWalkable;
+        public WalkableVM? SelectedWalkable
+        {
+            get => _selectedWalkable;
+            private set
+            {
+                if (_selectedWalkable == value) return;
+                _selectedWalkable = value;
+                OnPropertyChanged();
+
+                RebuildSelectedWalkableRoofFaces4();
+                SyncWalkableSelectionIntoMap();
+            }
+        }
+
+        public sealed class WalkableRowVM
+        {
+            public int WalkableId1 { get; set; }
+            public string Rect { get; set; } = "";
+            public byte Y { get; set; }
+            public byte StoreyY { get; set; }
+            public string Face4Span { get; set; } = "";
+            public ushort Next { get; set; }
+
+            // needed for selection -> roofface list
+            public ushort StartFace4 { get; set; }
+            public ushort EndFace4 { get; set; }
+        }
+
+        public sealed class RoofFace4RowVM
+        {
+            public int FaceId { get; set; }          // IMPORTANT: keep this as the real array index
+            public short Y { get; set; }
+            public string DY { get; set; } = "";
+            public byte RX { get; set; }
+            public string RZ { get; set; } = "";
+            public string DrawFlags { get; set; } = "";
+            public short Next { get; set; }
+        }
+
+
         private BuildingVM? _selectedBuilding;
         public BuildingVM? SelectedBuilding
         {
@@ -132,6 +220,9 @@ namespace UrbanChaosMapEditor.ViewModels
 
                 _selectedBuilding = value;
                 _selectedBuildingId = value?.Id ?? 0;
+
+                UpdateSelectedBuildingRec();
+                DumpSelectedBuildingRawBytesToDebug();
 
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(SelectedBuildingId));
@@ -155,7 +246,12 @@ namespace UrbanChaosMapEditor.ViewModels
                 RefreshSelectedBuildingFacetGroups();
 
                 // Whole-building highlight when building changes
+                RefreshSelectedBuildingFacetGroups();
+                RefreshSelectedBuildingWalkables();
                 SyncBuildingSelectionIntoMap();
+
+                SyncBuildingSelectionIntoMap();
+                RebuildSelectedBuildingWalkables();
             }
         }
 
@@ -365,6 +461,47 @@ namespace UrbanChaosMapEditor.ViewModels
             }
         }
 
+        private void UpdateSelectedBuildingRec()
+        {
+            int id1 = _selectedBuildingId;
+
+            if (id1 > 0 && id1 <= _rawBuildings.Length)
+            {
+                var rec = _rawBuildings[id1 - 1];
+                SelectedBuildingRec = rec;
+                HasSelectedBuildingRec = true;
+
+                // EndFacet is 1-based exclusive
+                SelectedBuildingFacetRangeCount = Math.Max(0, rec.EndFacet - rec.StartFacet);
+            }
+            else
+            {
+                SelectedBuildingRec = default;
+                HasSelectedBuildingRec = false;
+                SelectedBuildingFacetRangeCount = 0;
+            }
+        }
+
+        private void DumpSelectedBuildingRawBytesToDebug()
+        {
+            int id1 = _selectedBuildingId;
+            if (id1 <= 0) return;
+
+            if (_buildingsAcc.TryGetBuildingBytes(id1, out var raw, out int off))
+            {
+                // Hex dump: "AA BB CC ..."
+                string hex = BitConverter.ToString(raw).Replace("-", " ");
+
+                Debug.WriteLine($"[BuildingsTabVM] DBuilding#{id1} raw @ 0x{off:X}: {hex}");
+            }
+            else
+            {
+                Debug.WriteLine($"[BuildingsTabVM] DBuilding#{id1} raw: <unavailable>");
+            }
+        }
+
+
+
         // ---------- Refresh pipeline ----------
 
         public void Refresh()
@@ -389,6 +526,17 @@ namespace UrbanChaosMapEditor.ViewModels
             ShowCablesList = false;
 
             var arrays = _buildingsAcc.ReadSnapshot();
+            _rawBuildings = arrays.Buildings ?? Array.Empty<DBuildingRec>();
+
+            if (!MapDataService.Instance.TryGetWalkables(out _rawWalkables, out _rawRoofFaces4))
+            {
+                _rawWalkables = Array.Empty<DWalkableRec>();
+                _rawRoofFaces4 = Array.Empty<RoofFace4Rec>();
+            }
+
+
+            LoadWalkablesCacheFromService();
+
 
             Debug.WriteLine($"[BuildingsTabVM] region: start=0x{arrays.StartOffset:X} len=0x{arrays.Length:X}");
             Debug.WriteLine($"[BuildingsTabVM] counters: nextDBuilding={arrays.NextDBuilding} nextDFacet={arrays.NextDFacet} nextDStyle={arrays.NextDStyle} nextPaintMem={arrays.NextPaintMem} nextDStorey={arrays.NextDStorey} saveType={arrays.SaveType}");
@@ -467,12 +615,20 @@ namespace UrbanChaosMapEditor.ViewModels
                         foreach (var t in typeGroup.OrderBy(tt => tt.Id1))
                         {
                             var f = t.Facet;
+
+                            var styleDisplay = StyleDisplayFor(_styles, f.StyleIndex, DStoreysNext);
+
+                            // More robust: check anywhere in the string
+                            bool isPainted =
+                                !string.IsNullOrEmpty(styleDisplay) &&
+                                styleDisplay.IndexOf("painted", StringComparison.OrdinalIgnoreCase) >= 0;
+
                             gvm.Facets.Add(new FacetVM
                             {
                                 FacetId1 = t.Id1,
                                 Type = f.Type,
                                 StyleIndex = f.StyleIndex,
-                                StyleDisplay = StyleDisplayFor(_styles, f.StyleIndex, DStoreysNext),
+                                StyleDisplay = styleDisplay,
                                 Coords = $"({f.X0},{f.Z0}) → ({f.X1},{f.Z1})",
                                 Height = f.Height,
                                 FHeight = f.FHeight,
@@ -483,9 +639,11 @@ namespace UrbanChaosMapEditor.ViewModels
                                 Y0 = f.Y0,
                                 Y1 = f.Y1,
                                 BlockHeight = f.BlockHeight,
-                                Open = f.Open
+                                Open = f.Open,
+                                IsPainted = isPainted   // <-- key line
                             });
                         }
+
 
                         gvm.Count = gvm.Facets.Count;
                         if (gvm.Count > 0)
@@ -582,6 +740,7 @@ namespace UrbanChaosMapEditor.ViewModels
             {
                 // This will also rebuild SelectedBuildingFacetGroups and sync to Map
                 SelectedBuilding = restoredBuilding;
+                RebuildSelectedBuildingWalkables();
 
                 // Try to restore storey if it still exists
                 var restoredStorey = restoredBuilding.Storeys
@@ -620,6 +779,8 @@ namespace UrbanChaosMapEditor.ViewModels
                     Buildings.FirstOrDefault(b => !b.IsCablesBucket)
                     ?? Buildings.FirstOrDefault();
             }
+
+            UpdateSelectedBuildingRec();
 
 
             OnPropertyChanged(nameof(StylesCount));
@@ -689,6 +850,43 @@ namespace UrbanChaosMapEditor.ViewModels
             SyncSelectionIntoMapVm();
         }
 
+        public void HandleWalkableSelection(object? selection)
+        {
+            SelectedWalkableRoofFaces4.Clear();
+
+            if (selection is not WalkableVM w)   // <-- match your actual item type
+                return;
+
+            if (_rawRoofFaces4 == null || _rawRoofFaces4.Length == 0)
+                return;
+
+            int start = w.StartFace4;
+            int end = w.EndFace4;
+
+            start = Math.Max(0, start);
+            end = Math.Max(start, end);
+            end = Math.Min(end, _rawRoofFaces4.Length);
+
+            for (int i = start; i < end; i++)
+            {
+                var rf = _rawRoofFaces4[i];
+                SelectedWalkableRoofFaces4.Add(new RoofFace4VM
+                {
+                    FaceId = i,
+                    Y = rf.Y,
+                    DY0 = rf.DY0,
+                    DY1 = rf.DY1,
+                    DY2 = rf.DY2,
+                    // (you probably also want DY3 if it exists)
+                    RX = rf.RX,
+                    RZ = rf.RZ,
+                    DrawFlags = rf.DrawFlags,
+                    Next = rf.Next
+                });
+            }
+        }
+
+
 
         /// <summary>
         /// Called from the LEFT building/storey tree selection in the view.
@@ -756,7 +954,10 @@ namespace UrbanChaosMapEditor.ViewModels
             }
 
             // WHOLE BUILDING/STOREY: facet id is null here
+            RebuildSelectedBuildingWalkables();
             SyncBuildingSelectionIntoMap();
+            RebuildSelectedBuildingWalkables();
+
         }
 
 
@@ -858,6 +1059,51 @@ namespace UrbanChaosMapEditor.ViewModels
             SyncBuildingSelectionIntoMap();
         }
 
+        private void RefreshSelectedBuildingWalkables()
+        {
+            SelectedBuildingWalkables.Clear();
+            SelectedWalkableRoofFaces4.Clear();
+
+            int bid = SelectedBuilding?.Id ?? 0;
+            if (bid <= 0) return;
+            if (_rawWalkables.Length <= 1) return;
+
+            // walkables[0] sentinel
+            for (int i = 1; i < _rawWalkables.Length; i++)
+            {
+                var w = _rawWalkables[i];
+                if (w.Building != bid) continue;
+
+                // skip empty
+                if ((w.X1 | w.Z1 | w.X2 | w.Z2) == 0) continue;
+
+                int count = Math.Max(0, w.EndFace4 - w.StartFace4);
+
+                SelectedBuildingWalkables.Add(new WalkableVM
+                {
+                    WalkableId1 = i,
+
+                    // assign raw coords (so Rect can compute itself)
+                    X1 = w.X1,
+                    Z1 = w.Z1,
+                    X2 = w.X2,
+                    Z2 = w.Z2,
+
+                    Y = w.Y,
+                    StoreyY = w.StoreyY,
+                    Next = w.Next,
+
+                    StartFace4 = w.StartFace4,
+                    EndFace4 = w.EndFace4,
+                });
+
+            }
+
+            // auto-select first for RoofFace4 list
+            var first = SelectedBuildingWalkables.FirstOrDefault();
+            if (first != null)
+                HandleWalkableSelection(first);
+        }
 
 
 
@@ -905,6 +1151,131 @@ namespace UrbanChaosMapEditor.ViewModels
             map.SelectedBuildingId = SelectedBuilding?.Id ?? 0;
             map.SelectedStoreyId = SelectedStoreyId;      // storey currently in view
             map.SelectedFacetId = null;                 // whole-building/storey highlight
+        }
+
+        // ---------- Walkables plumbing ----------
+
+        private void LoadWalkablesCacheFromService()
+        {
+            _rawWalkables = Array.Empty<DWalkableRec>();
+            _rawRoofFaces4 = Array.Empty<RoofFace4Rec>();
+
+            var svc = MapDataService.Instance;
+            if (!svc.IsLoaded) return;
+
+            if (svc.TryGetWalkables(out var walkables, out var roofFaces4))
+            {
+                _rawWalkables = walkables ?? Array.Empty<DWalkableRec>();
+                _rawRoofFaces4 = roofFaces4 ?? Array.Empty<RoofFace4Rec>();
+            }
+        }
+
+        private void RebuildSelectedBuildingWalkables()
+        {
+            SelectedBuildingWalkables.Clear();
+            SelectedWalkableRoofFaces4.Clear();
+            SelectedWalkable = null;
+
+            int bId = SelectedBuilding?.Id ?? 0;
+            if (bId <= 0) return;
+
+            if (_rawWalkables == null || _rawWalkables.Length <= 1)
+                return;
+
+            // Walkables array: index 0 is sentinel; valid entries start at 1
+            for (int i = 1; i < _rawWalkables.Length; i++)
+            {
+                var w = _rawWalkables[i];
+
+                // Must match building id
+                if (w.Building != bId) continue;
+
+                // Skip empty rects (same check as overlay)
+                if ((w.X1 | w.Z1 | w.X2 | w.Z2) == 0) continue;
+
+                bool hasFace4 = w.EndFace4 > w.StartFace4;
+
+                SelectedBuildingWalkables.Add(new WalkableVM
+                {
+                    WalkableId1 = i,
+                    BuildingId = w.Building,
+                    X1 = w.X1,
+                    Z1 = w.Z1,
+                    X2 = w.X2,
+                    Z2 = w.Z2,
+                    Y = w.Y,
+                    StoreyY = w.StoreyY,
+                    StartFace4 = w.StartFace4,
+                    EndFace4 = w.EndFace4,
+                    Next = w.Next,
+                    HasRoofFaces4 = hasFace4
+                });
+            }
+
+            OnPropertyChanged(nameof(SelectedBuildingWalkables));
+        }
+
+        private void RebuildSelectedWalkableRoofFaces4()
+        {
+            SelectedWalkableRoofFaces4.Clear();
+
+            var w = SelectedWalkable;
+            if (w == null) return;
+
+            // Empty span => nothing to show
+            if (w.EndFace4 <= w.StartFace4) return;
+
+            // Guard
+            if (_rawRoofFaces4 == null || _rawRoofFaces4.Length == 0) return;
+
+            int start = w.StartFace4;
+            int endEx = w.EndFace4;
+
+            // Clamp to array bounds just in case (map data can be messy)
+            if (start < 0) start = 0;
+            if (endEx > _rawRoofFaces4.Length) endEx = _rawRoofFaces4.Length;
+
+            for (int i = start; i < endEx; i++)
+            {
+                var rf = _rawRoofFaces4[i];
+
+                SelectedWalkableRoofFaces4.Add(new RoofFace4VM
+                {
+                    FaceId = i,
+                    Y = rf.Y,
+
+                    // assign raw DY fields (so DY can compute itself)
+                    DY0 = rf.DY0,
+                    DY1 = rf.DY1,
+                    DY2 = rf.DY2,
+
+                    RX = rf.RX,
+
+                    // assign raw bytes (NOT formatted strings)
+                    RZ = rf.RZ,
+                    DrawFlags = rf.DrawFlags,
+
+                    Next = rf.Next
+                });
+
+            }
+
+            OnPropertyChanged(nameof(SelectedWalkableRoofFaces4));
+        }
+
+        /// <summary>
+        /// Push selected walkable into MapViewModel so WalkablesLayer can highlight only that.
+        /// Requires MapViewModel.SelectedWalkableId1 (int) to exist.
+        /// </summary>
+        private void SyncWalkableSelectionIntoMap()
+        {
+            var shell = System.Windows.Application.Current.MainWindow?.DataContext as MainWindowViewModel;
+            var map = shell?.Map;
+            if (map == null) return;
+
+            // You will need to add this property to MapViewModel:
+            // public int SelectedWalkableId1 { get; set; }
+            map.SelectedWalkableId1 = SelectedWalkable?.WalkableId1 ?? 0;
         }
 
 
@@ -1055,6 +1426,7 @@ namespace UrbanChaosMapEditor.ViewModels
             public FacetType Type { get; set; }
             public ushort StyleIndex { get; set; }
             public string StyleDisplay { get; set; } = "";   // shown in tree + details
+            public bool IsPainted { get; init; }
             public string Coords { get; set; } = "";
             public byte Height { get; set; }
             public byte FHeight { get; set; }
@@ -1118,6 +1490,49 @@ namespace UrbanChaosMapEditor.ViewModels
             public byte Ty { get; set; }
             public string FlipDisplay { get; set; } = "";   // e.g., "-", "X", "Y", "XY"
         }
+
+        public sealed class WalkableVM
+        {
+            public int WalkableId1 { get; set; }      // index into DWalkable array (1-based valid)
+            public int BuildingId { get; set; }
+
+            public byte X1 { get; set; }
+            public byte Z1 { get; set; }
+            public byte X2 { get; set; }
+            public byte Z2 { get; set; }
+
+            public byte Y { get; set; }
+            public byte StoreyY { get; set; }
+
+            public ushort StartFace4 { get; set; }
+            public ushort EndFace4 { get; set; }
+            public ushort Next { get; set; }
+
+            public bool HasRoofFaces4 { get; set; }
+
+            // For XAML columns
+            public string Rect => $"({X1},{Z1}) → ({X2},{Z2})";
+            public string Face4Span => $"{StartFace4}..{EndFace4}  (n={Math.Max(0, EndFace4 - StartFace4)})";
+        }
+
+        public sealed class RoofFace4VM
+        {
+            public int FaceId { get; set; }   // index into RoofFace4 array
+
+            public short Y { get; set; }
+            public sbyte DY0 { get; set; }
+            public sbyte DY1 { get; set; }
+            public sbyte DY2 { get; set; }
+
+            public byte DrawFlags { get; set; }
+            public byte RX { get; set; }
+            public byte RZ { get; set; }
+            public short Next { get; set; }
+
+            // For XAML columns
+            public string DY => $"{DY0},{DY1},{DY2}";
+        }
+
 
         public event PropertyChangedEventHandler? PropertyChanged;
         private void OnPropertyChanged([CallerMemberName] string? name = null)

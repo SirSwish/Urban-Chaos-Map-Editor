@@ -16,10 +16,6 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
     {
         private MapViewModel? _vm;
 
-        // current hover tile (null when not hovering/invalid)
-        private int? _hoverTx;
-        private int? _hoverTy;
-
         public GhostTexturePreviewLayer()
         {
             Width = MapConstants.MapPixels;

@@ -67,22 +67,20 @@
 
                 <!-- Delete -->
                 <Button x:Name="DeletePrimBtn"
-                        Width="45" Height="40"
-                        Margin="6,0,0,0"
-                        Click="DeletePrim_Click"
-                        ToolTip="Delete selected prim">
-                    <Button.Style>
-                        <Style TargetType="Button">
-                            <Setter Property="IsEnabled" Value="True"/>
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding SelectedItem, ElementName=PrimsList}" Value="{x:Null}">
-                                    <Setter Property="IsEnabled" Value="False"/>
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                    <Image Source="/Assets/Icons/delete.ico" Width="32" Height="32" Stretch="Uniform"/>
+                    Width="45"
+                    Height="40"
+                    Margin="6,0,0,0"
+                    Click="DeletePrim_Click"
+                    IsEnabled="{Binding SelectedItem, ElementName=PrimsList, Converter={StaticResource NullToBool}}">
+                                <Button.ToolTip>
+                                    <TextBlock Text="Delete selected prim"/>
+                                </Button.ToolTip>
+                                <Image Source="/Assets/Icons/delete.ico"
+                       Width="32"
+                       Height="32"
+                       Stretch="Uniform"/>
                 </Button>
+
             </WrapPanel>
         </Border>
 
@@ -103,7 +101,7 @@
                                 <TextBlock>
                                     <Run Text="{Binding Number, StringFormat={}{0:D3}}"/>
                                     <Run Text=" - "/>
-                                    <Run Text="{Binding Name}"/>
+                                    <Run Text="{Binding Title}"/>
                                 </TextBlock>
                             </ToolTipService.ToolTip>
                             <Border BorderBrush="#444" BorderThickness="1" Background="#222">

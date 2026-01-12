@@ -97,13 +97,13 @@
                     <Button.ToolTip>
                         <TextBlock Text="Copy Light (Ctrl+C)"/>
                     </Button.ToolTip>
-                    <Image Source="/Assets/Icons/copy.ico" Width="32" Height="32"/>
+                    <Image Source="/Assets/Icons/copyobject.ico" Width="32" Height="32"/>
                 </Button>
                 <Button Width="45" Height="40" Click="PasteLight_Click" Margin="0,0,6,0">
                     <Button.ToolTip>
                         <TextBlock Text="Paste Light (Ctrl+V)"/>
                     </Button.ToolTip>
-                    <Image Source="/Assets/Icons/paste.ico" Width="32" Height="32"/>
+                    <Image Source="/Assets/Icons/pasteobject.ico" Width="32" Height="32"/>
                 </Button>
 
                 <!-- Light Map Properties -->

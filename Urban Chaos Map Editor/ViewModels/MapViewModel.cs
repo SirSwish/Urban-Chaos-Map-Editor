@@ -126,6 +126,9 @@ namespace UrbanChaosMapEditor.ViewModels
         public bool ShowBuildings { get => _showBuildings; set { if (_showBuildings != value) { _showBuildings = value; OnPropertyChanged(); } } }
 
         private bool _showObjects = true;
+        public bool ShowWalkables { get => _showWalkables; set { if (_showWalkables != value) { _showWalkables = value; OnPropertyChanged(); } } }
+
+        private bool _showWalkables = true;
         public bool ShowObjects { get => _showObjects; set { if (_showObjects != value) { _showObjects = value; OnPropertyChanged(); } } }
 
         private bool _showPrimGraphics = true;
@@ -360,6 +363,19 @@ namespace UrbanChaosMapEditor.ViewModels
             get => _selectedBuildingId;
             set { if (_selectedBuildingId != value) { _selectedBuildingId = value; OnPropertyChanged(); } }
         }
+
+        private int _selectedWalkableId1;
+        public int SelectedWalkableId1
+        {
+            get => _selectedWalkableId1;
+            set
+            {
+                if (_selectedWalkableId1 == value) return;
+                _selectedWalkableId1 = value;
+                OnPropertyChanged();
+            }
+        }
+
 
         private int? _selectedStoreyId;
         public int? SelectedStoreyId

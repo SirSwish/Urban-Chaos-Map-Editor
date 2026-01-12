@@ -19,8 +19,6 @@ namespace UrbanChaosMapEditor.Views
         private bool _heightHotkeyLatched;
         private PrimListItem? _copiedPrim;
         private LightEntry? _copiedLight;
-        private enum ClipboardKind { None, Prim, Light }
-        private ClipboardKind _clipboardKind = ClipboardKind.None;
         private void DeleteLight_Click(object sender, RoutedEventArgs e) => DeleteSelectedLight();
         private void CopyLight_Click(object sender, RoutedEventArgs e) => CopySelectedLight();
         private void PasteLight_Click(object sender, RoutedEventArgs e) => PasteLightAtCursor();

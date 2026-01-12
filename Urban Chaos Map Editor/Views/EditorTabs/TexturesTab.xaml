@@ -142,19 +142,19 @@
                     <TextBlock Text="Rotation:" VerticalAlignment="Center" Margin="0,0,8,0"/>
                     <Button Width="28" Height="24" Click="RotateLeft_Click" ToolTip="Rotate CCW (?90)"
                             Background="#DDDDDD" BorderBrush="#666666">
-                        <TextBlock Text="?" FontSize="14" Foreground="#111111"
+                        <TextBlock Text="&lt;" FontSize="14" Foreground="#111111"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Button>
                     <Button Width="28" Height="24" Margin="6,0,0,0"
                             Click="RotateRight_Click" ToolTip="Rotate CW (+90)"
                             Background="#DDDDDD" BorderBrush="#666666">
-                        <TextBlock Text="?" FontSize="14" Foreground="#111111"
+                        <TextBlock Text="&gt;" FontSize="14" Foreground="#111111"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Button>
 
                     <TextBlock Margin="8,0,0,0" VerticalAlignment="Center">
                         <Run Text="{Binding Map.SelectedRotationIndex}"/>
-                        <Run Text=" (0?180,1?90,2?0,3?270)"/>
+                        <Run Text=" (0=180&#176;,1=90&#176;,2=0&#176;,3=270&#176;)"/>
                     </TextBlock>
 
                     <TextBlock Text="   Brush:" VerticalAlignment="Center" Margin="12,0,6,0"/>
