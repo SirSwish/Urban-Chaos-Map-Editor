@@ -3,56 +3,48 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
-using System.Formats.Tar;
-using System.IO;
 using System.Linq;
-using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using System.Windows.Resources;
 using System.Windows.Shapes;
 using UrbanChaosMapEditor.Models;
 using UrbanChaosMapEditor.Models.Styles;
 using UrbanChaosMapEditor.Services;
 using UrbanChaosMapEditor.Services.DataServices;
-// --- resolve common ambiguities cleanly ---
-using IOPath = System.IO.Path;
+using UrbanChaosMapEditor.ViewModels;
 using StyleTextureEntry = UrbanChaosMapEditor.Models.Styles.TextureEntry;
-using TextureEntry = UrbanChaosMapEditor.Models.Styles.TextureEntry;
 
 namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
 {
     public partial class FacetPreviewWindow : Window
     {
         private const int PanelPx = 64;
-      
 
         private DFacetRec _facet;
+        private readonly int _facetIndex1;
 
-        // Snapshot tables we need to resolve styles
+        // Snapshot tables for style resolution
         private short[] _dstyles = Array.Empty<short>();
         private BuildingArrays.DStoreyRec[] _storeys = Array.Empty<BuildingArrays.DStoreyRec>();
         private byte[] _paintMem = Array.Empty<byte>();
 
         // Texture location hints
-        private readonly string _variant;      // "Release" or "Beta"
+        private readonly string? _variant;
         private readonly int _worldNumber;
-        private readonly string? _texturesRoot;
 
-        private static int NormalizeStyleId(int id) => id <= 0 ? 1 : id;
-        private readonly int _facetIndex1; // 1-based file-order index for this facet
         private ObservableCollection<FlagItem>? _flagItems;
 
-        private readonly int _facetId1;          // 1-based file-order id you already pass in
-        private int _facetBaseOffset = -1;       // absolute offset of this facet in the map bytes
-        private const int DFacetSize = 26;       // facet record size (bytes)
+        // Regex for input validation
+        private static readonly Regex _digitsOnly = new Regex(@"^[0-9]+$");
+        private static readonly Regex _signedDigitsOnly = new Regex(@"^-?[0-9]+$");
 
-
+        private static int NormalizeStyleId(int id) => id <= 0 ? 1 : id;
 
         public FacetPreviewWindow(DFacetRec facet, int facetId1)
         {
@@ -60,20 +52,17 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             _facet = facet;
             _facetIndex1 = facetId1;
 
-            // Get both values directly from the shell's Map object. No defaults.
             if (!TryResolveVariantAndWorld(out _variant, out _worldNumber))
             {
                 _variant = null;
                 _worldNumber = 0;
-                System.Diagnostics.Debug.WriteLine("[FacetPreview] FATAL: Could not resolve Map.UseBetaTextures/Map.TextureWorld from shell Map. No defaults will be used.");
             }
 
             Loaded += async (_, __) => await BuildUIAsync();
         }
 
+        #region Flag Item Model
 
-
-        // --- Flag item model (with the bit it represents) ---
         private sealed class FlagItem
         {
             public string Name { get; init; } = "";
@@ -81,7 +70,6 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             public bool IsSet { get; set; }
         }
 
-        // Build list from current flags
         private static IEnumerable<FlagItem> BuildFlagItemsEx(FacetFlags f)
         {
             FlagItem Make(string name, FacetFlags bit) => new() { Name = name, Bit = bit, IsSet = (f & bit) != 0 };
@@ -102,35 +90,215 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             yield return Make("FenceCut", FacetFlags.FenceCut);
         }
 
-        private void DebugDumpStyleRow(int rawStyleId)
+        #endregion
+
+        #region Input Validation
+
+        private void NumericOnly_PreviewTextInput(object sender, TextCompositionEventArgs e)
         {
-            var tma = StyleDataService.Instance.TmaSnapshot;
-            if (tma == null)
+            e.Handled = !_digitsOnly.IsMatch(e.Text);
+        }
+
+        private void SignedNumericOnly_PreviewTextInput(object sender, TextCompositionEventArgs e)
+        {
+            var textBox = sender as TextBox;
+            string newText = textBox?.Text.Insert(textBox.SelectionStart, e.Text) ?? e.Text;
+            e.Handled = !_signedDigitsOnly.IsMatch(newText);
+        }
+
+        #endregion
+
+        #region Coordinate Editing
+
+        private void Coord_LostFocus(object sender, RoutedEventArgs e)
+        {
+            if (sender is not TextBox) return;
+
+            if (!byte.TryParse(TxtX0.Text, out byte x0)) x0 = _facet.X0;
+            if (!byte.TryParse(TxtZ0.Text, out byte z0)) z0 = _facet.Z0;
+            if (!byte.TryParse(TxtX1.Text, out byte x1)) x1 = _facet.X1;
+            if (!byte.TryParse(TxtZ1.Text, out byte z1)) z1 = _facet.Z1;
+
+            x0 = Math.Min(x0, (byte)127);
+            z0 = Math.Min(z0, (byte)127);
+            x1 = Math.Min(x1, (byte)127);
+            z1 = Math.Min(z1, (byte)127);
+
+            if (x0 == _facet.X0 && z0 == _facet.Z0 && x1 == _facet.X1 && z1 == _facet.Z1)
             {
-                Debug.WriteLine($"[StyleDump] style.tma not loaded.");
+                RefreshCoordDisplay();
                 return;
             }
 
-            int idx = StyleDataService.MapRawStyleIdToTmaIndex(rawStyleId);
-            if (idx < 0 || idx >= tma.TextureStyles.Count)
+            var acc = new BuildingsAccessor(MapDataService.Instance);
+            if (acc.TryUpdateFacetCoords(_facetIndex1, x0, z0, x1, z1))
             {
-                Debug.WriteLine($"[StyleDump] Raw style {rawStyleId} -> index {idx} out of range.");
-                return;
+                _facet = CopyFacetWithCoords(_facet, x0, z0, x1, z1);
+                RefreshCoordDisplay();
+                DrawPreview(_facet);
             }
-
-            var style = tma.TextureStyles[idx];
-            Debug.WriteLine($"[StyleDump] Raw style {rawStyleId} (TMA row {idx}), entries={style.Entries.Count}");
-
-            for (int i = 0; i < style.Entries.Count; i++)
+            else
             {
-                var e = style.Entries[i];
-                int globalIndex = e.Page * 64 + e.Ty * 8 + e.Tx;
-                Debug.WriteLine(
-                    $"  slot[{i}]: Page={e.Page} Tx={e.Tx} Ty={e.Ty} Flip={e.Flip} -> tex{globalIndex:D3}");
+                RefreshCoordDisplay();
             }
         }
 
-        // Hook events once items are set
+        private void RefreshCoordDisplay()
+        {
+            TxtX0.Text = _facet.X0.ToString();
+            TxtZ0.Text = _facet.Z0.ToString();
+            TxtX1.Text = _facet.X1.ToString();
+            TxtZ1.Text = _facet.Z1.ToString();
+            FacetCoordsText.Text = $"Current: ({_facet.X0},{_facet.Z0}) → ({_facet.X1},{_facet.Z1})";
+        }
+
+        private static DFacetRec CopyFacetWithCoords(DFacetRec f, byte x0, byte z0, byte x1, byte z1)
+        {
+            return new DFacetRec(f.Type, x0, z0, x1, z1, f.Height, f.FHeight,
+                f.StyleIndex, f.Building, f.Storey, f.Flags, f.Y0, f.Y1,
+                f.BlockHeight, f.Open, f.Dfcache, f.Shake, f.CutHole, f.Counter0, f.Counter1);
+        }
+
+        /// <summary>
+        /// Called from MapView when the user finishes drawing (two clicks).
+        /// Updates the facet coordinates and refreshes the UI.
+        /// </summary>
+        public void ApplyRedrawCoords(byte x0, byte z0, byte x1, byte z1)
+        {
+            var acc = new BuildingsAccessor(MapDataService.Instance);
+            if (acc.TryUpdateFacetCoords(_facetIndex1, x0, z0, x1, z1))
+            {
+                _facet = CopyFacetWithCoords(_facet, x0, z0, x1, z1);
+                RefreshCoordDisplay();
+                DrawPreview(_facet);
+            }
+        }
+
+        #endregion
+
+        #region Height Editing
+
+        private void Height_LostFocus(object sender, RoutedEventArgs e)
+        {
+            if (sender is not TextBox) return;
+
+            if (!byte.TryParse(TxtHeight.Text, out byte height)) height = _facet.Height;
+            if (!byte.TryParse(TxtFHeight.Text, out byte fheight)) fheight = _facet.FHeight;
+            if (!short.TryParse(TxtY0.Text, out short y0)) y0 = _facet.Y0;
+            if (!short.TryParse(TxtY1.Text, out short y1)) y1 = _facet.Y1;
+            if (!byte.TryParse(TxtBlockHeight.Text, out byte blockHeight)) blockHeight = _facet.BlockHeight;
+
+            if (height == _facet.Height && fheight == _facet.FHeight &&
+                y0 == _facet.Y0 && y1 == _facet.Y1 && blockHeight == _facet.BlockHeight)
+            {
+                RefreshHeightDisplay();
+                return;
+            }
+
+            var acc = new BuildingsAccessor(MapDataService.Instance);
+            if (acc.TryUpdateFacetHeights(_facetIndex1, height, fheight, y0, y1, blockHeight))
+            {
+                _facet = CopyFacetWithHeights(_facet, height, fheight, y0, y1, blockHeight);
+                RefreshHeightDisplay();
+                DrawPreview(_facet);
+            }
+            else
+            {
+                RefreshHeightDisplay();
+            }
+        }
+
+        private void RefreshHeightDisplay()
+        {
+            TxtHeight.Text = _facet.Height.ToString();
+            TxtFHeight.Text = _facet.FHeight.ToString();
+            TxtY0.Text = _facet.Y0.ToString();
+            TxtY1.Text = _facet.Y1.ToString();
+            TxtBlockHeight.Text = _facet.BlockHeight.ToString();
+
+            int approxStoreys = UsesVerticalUnitsAsPanels(_facet.Type)
+                ? Math.Max(1, (int)_facet.Height)
+                : Math.Max(1, ((int)_facet.Height + 3) / 4);
+
+            FacetHeightText.Text = UsesVerticalUnitsAsPanels(_facet.Type)
+                ? $"~{approxStoreys} stacked fence panels"
+                : $"~{approxStoreys} storeys";
+        }
+
+        private static DFacetRec CopyFacetWithHeights(DFacetRec f, byte height, byte fheight, short y0, short y1, byte blockHeight)
+        {
+            return new DFacetRec(f.Type, f.X0, f.Z0, f.X1, f.Z1, height, fheight,
+                f.StyleIndex, f.Building, f.Storey, f.Flags, y0, y1,
+                blockHeight, f.Open, f.Dfcache, f.Shake, f.CutHole, f.Counter0, f.Counter1);
+        }
+
+        #endregion
+
+        #region Redraw on Map
+
+        private void BtnRedraw_Click(object sender, RoutedEventArgs e)
+        {
+            // Start the redraw operation - hide this window and enter drawing mode
+            if (Application.Current.MainWindow?.DataContext is MainWindowViewModel mainVm)
+            {
+                // Store reference to this window for callback
+                mainVm.Map.BeginFacetRedraw(this, _facetIndex1);
+
+                // Hide this window
+                Hide();
+
+                mainVm.StatusMessage = "Click start point (X0,Z0), then end point (X1,Z1). Right-click to cancel.";
+            }
+        }
+
+        private void BtnDeleteFacet_Click(object sender, RoutedEventArgs e)
+        {
+            if (_facetIndex1 <= 0)
+                return;
+
+            var deleter = new FacetDeleter(MapDataService.Instance);
+            var result = deleter.TryDeleteFacet(_facetIndex1);
+
+            if (result.IsSuccess)
+            {
+                // Close this window since the facet no longer exists
+                DialogResult = true;
+                Close();
+
+                // The BuildingsTabViewModel will handle selecting the next facet
+                // via the BuildingsChangeBus notification
+            }
+            else
+            {
+                MessageBox.Show($"Failed to delete facet:\n\n{result.ErrorMessage}",
+                    "Delete Failed", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        /// <summary>
+        /// Called when redraw is cancelled (right-click or escape).
+        /// Restores the window without changes.
+        /// </summary>
+        public void OnRedrawCancelled()
+        {
+            Show();
+            Activate();
+        }
+
+        /// <summary>
+        /// Called when redraw is completed (two clicks made).
+        /// Shows the window with updated coordinates.
+        /// </summary>
+        public void OnRedrawCompleted()
+        {
+            Show();
+            Activate();
+        }
+
+        #endregion
+
+        #region Flag Editing
+
         private void HookFlagEvents()
         {
             FlagsList.AddHandler(System.Windows.Controls.Primitives.ToggleButton.CheckedEvent,
@@ -139,7 +307,6 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
                 new RoutedEventHandler(OnFlagToggled));
         }
 
-        // Recompute mask + write to file
         private void OnFlagToggled(object? sender, RoutedEventArgs e)
         {
             if (_flagItems == null) return;
@@ -148,19 +315,24 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             foreach (var it in _flagItems)
                 if (it.IsSet) newMask |= it.Bit;
 
-            // Persist via BuildingsAccessor
             var ok = new BuildingsAccessor(MapDataService.Instance).TryUpdateFacetFlags(_facetIndex1, newMask);
-            if (!ok)
-            {
-                Debug.WriteLine($"[FacetPreview] TryUpdateFacetFlags failed for facet #{_facetIndex1}");
-                return;
-            }
+            if (!ok) return;
 
-            // Update the on-screen hex line
+            _facet = CopyFacetWithFlags(_facet, newMask);
             FacetFlagsText.Text = $"Flags: 0x{((ushort)newMask):X4}   Building={_facet.Building} Storey={_facet.Storey} StyleIndex={_facet.StyleIndex}";
         }
 
-        // ---------- Small VMs for paint bytes grid ----------
+        private static DFacetRec CopyFacetWithFlags(DFacetRec f, FacetFlags newFlags)
+        {
+            return new DFacetRec(f.Type, f.X0, f.Z0, f.X1, f.Z1, f.Height, f.FHeight,
+                f.StyleIndex, f.Building, f.Storey, newFlags, f.Y0, f.Y1,
+                f.BlockHeight, f.Open, f.Dfcache, f.Shake, f.CutHole, f.Counter0, f.Counter1);
+        }
+
+        #endregion
+
+        #region UI Building
+
         private sealed class PaintByteVM
         {
             public int Index { get; init; }
@@ -169,146 +341,61 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             public string Flag { get; init; } = "";
         }
 
-        // ---------- Entry point ----------
         private async Task BuildUIAsync()
         {
-            // Populate the Type dropdown
-            FacetTypeCombo.ItemsSource = Enum.GetValues(typeof(FacetType)).Cast<FacetType>().ToList();
-            FacetTypeCombo.SelectedItem = _facet.Type;
-
-            // Get a fresh snapshot to compute this facet's absolute byte offset
             var arrays = new BuildingsAccessor(MapDataService.Instance).ReadSnapshot();
 
-            // DEBUG: dump style chain + DStorey for this facet
-            try
-            {
-                var styles = arrays.Styles ?? Array.Empty<short>();
-                var storeys = arrays.Storeys ?? Array.Empty<BuildingArrays.DStoreyRec>();
-                var paintMem = arrays.PaintMem ?? Array.Empty<byte>();
+            FacetIdText.Text = $"Facet #{_facetIndex1}";
+            FacetTypeText.Text = _facet.Type.ToString();
 
-                Debug.WriteLine("===== PAINT DEBUG FOR FACET =====");
-                Debug.WriteLine($"FacetId1={_facetIndex1}  Facet.StyleIndex={_facet.StyleIndex}  Height={_facet.Height}  FHeight={_facet.FHeight}");
-                Debug.WriteLine($"FacetFlags=0x{(ushort)_facet.Flags:X4}  Type={_facet.Type}");
+            RefreshCoordDisplay();
+            RefreshHeightDisplay();
 
-                // 1) What does dstyles look like around this facet?
-                int baseIdx = _facet.StyleIndex;
-                int span = 8;   // dump a small window
-                for (int i = 0; i < span; i++)
-                {
-                    int idx = baseIdx + i;
-                    if (idx < 0 || idx >= styles.Length) break;
-                    short val = styles[idx];
-
-                    if (val >= 0)
-                    {
-                        Debug.WriteLine($"dstyles[{idx}] = {val}  (RAW style id)");
-                    }
-                    else
-                    {
-                        int sid = -val;
-                        string extra = (sid >= 1 && sid <= storeys.Length)
-                            ? $" -> DStorey[{sid}]"
-                            : " -> (OUT OF RANGE)";
-                        Debug.WriteLine($"dstyles[{idx}] = {val}  (PAINTED) {extra}");
-                    }
-                }
-
-                // 2) If the first entry is painted, dump that DStorey and its bytes
-                if (baseIdx >= 0 && baseIdx < styles.Length && styles[baseIdx] < 0)
-                {
-                    int sid = -styles[baseIdx];       // 1-based id in Fallen
-                    int sIdx = sid - 1;               // 0-based C# index
-
-                    if (sIdx >= 0 && sIdx < storeys.Length)
-                    {
-                        var ds = storeys[sIdx];
-
-                        Debug.WriteLine($"DStorey sid={sid} -> Style(base)={ds.StyleIndex}  PaintIndex={ds.PaintIndex}  Count={ds.Count}");
-
-                        if (ds.PaintIndex + ds.Count <= paintMem.Length)
-                        {
-                            var sb = new StringBuilder();
-                            for (int i = 0; i < ds.Count; i++)
-                            {
-                                if (i > 0) sb.Append(' ');
-                                sb.Append(paintMem[ds.PaintIndex + i].ToString("X2"));
-                            }
-                            Debug.WriteLine($"Paint bytes[{ds.PaintIndex}..+{ds.Count}): {sb}");
-                        }
-                        else
-                        {
-                            Debug.WriteLine($"Paint bytes out of range: idx={ds.PaintIndex} count={ds.Count} paintMemLen={paintMem.Length}");
-                        }
-                    }
-                    else
-                    {
-                        Debug.WriteLine($"ERROR: DStorey id {sid} not in storeys[] (len={storeys.Length})");
-                    }
-                }
-
-                Debug.WriteLine("=================================");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[PaintDebug] Exception while dumping: {ex}");
-            }
-
-            // You need the absolute start of the facets table from the snapshot.
-            // If your snapshot type is `BuildingArrays`, add an int property like `FacetsStart` (absolute).
-            _facetBaseOffset = arrays.FacetsStart + (_facetIndex1 - 1) * DFacetSize;
-
-            // Show segments + an approximate storey count for non-fence types (4 segments = 1 storey)
-            int approxStoreys = UsesVerticalUnitsAsPanels(_facet.Type)
-                ? Math.Max(1, (int)_facet.Height)
-                : Math.Max(1, ((int)_facet.Height + 3) / 4); // ceil(height/4)
-
-            // Meta
-            FacetIdText.Text = $"Facet (file-order id not shown)";
-            InitFacetTypeCombo();
-            FacetCoordsText.Text = $"Coords: ({_facet.X0},{_facet.Z0}) → ({_facet.X1},{_facet.Z1})";
-            FacetHeightText.Text =
-                                    UsesVerticalUnitsAsPanels(_facet.Type)
-                                    ? $"Height: coarse={_facet.Height} fine={_facet.FHeight}  (~{approxStoreys} stacked fence panels)"
-                                    : $"Height: coarse={_facet.Height} fine={_facet.FHeight}  (~{approxStoreys} storeys)";
             FacetFlagsText.Text = $"Flags: 0x{((ushort)_facet.Flags):X4}   Building={_facet.Building} Storey={_facet.Storey} StyleIndex={_facet.StyleIndex}";
             _flagItems = new ObservableCollection<FlagItem>(BuildFlagItemsEx(_facet.Flags));
             FlagsList.ItemsSource = _flagItems;
             HookFlagEvents();
 
-            // Grab building block snapshot (for dstyles / paint mem / storeys)
             _dstyles = arrays.Styles ?? Array.Empty<short>();
             _paintMem = arrays.PaintMem ?? Array.Empty<byte>();
             _storeys = arrays.Storeys ?? Array.Empty<BuildingArrays.DStoreyRec>();
 
-            Debug.WriteLine($"[FacetPreview] region 0x{arrays.StartOffset:X} len=0x{arrays.Length:X} dstyles={(_dstyles?.Length ?? 0)} paintMem={(_paintMem?.Length ?? 0)} storeys={(_storeys?.Length ?? 0)}");
-
-            // Ensure TMA is loaded
             await EnsureStylesLoadedAsync();
-
-            DebugDumpStyleRow(11);
-            DebugDumpStyleRow(12);
-
-            // Style resolve summary (RAW vs PAINTED) + recipe text
             SummarizeStyleAndRecipe(_facet);
-
-            // Draw exact-pixel preview
             DrawPreview(_facet);
         }
 
-        private bool _initializingTypeCombo;
-
-        private void InitFacetTypeCombo()
-        {
-            _initializingTypeCombo = true;
-            FacetTypeCombo.ItemsSource = Enum.GetValues(typeof(FacetType)).Cast<FacetType>().ToList();
-            FacetTypeCombo.SelectedItem = _facet.Type;
-            _initializingTypeCombo = false;
-        }
-
-
-        // ---------- Summary / recipe ----------
         private void SummarizeStyleAndRecipe(DFacetRec f)
         {
+            // Ladders don't use style.tma textures - they're procedurally rendered
+            if (f.Type == FacetType.Ladder)
+            {
+                StyleModeText.Text = "Mode: LADDER (procedural)";
+                RawStyleText.Text = $"StyleIndex={f.StyleIndex} (ignored for ladders)";
+                RecipeText.Text = "Ladders use a procedurally generated texture with white rungs and rails.";
+                RawStylePanel.Visibility = Visibility.Visible;
+                PaintedPanel.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            // Doors don't use style.tma textures - they render as black rectangles
+            if (f.Type == FacetType.Door || f.Type == FacetType.InsideDoor || f.Type == FacetType.OutsideDoor)
+            {
+                string doorTypeName = f.Type switch
+                {
+                    FacetType.Door => "DOOR",
+                    FacetType.InsideDoor => "INSIDE DOOR",
+                    FacetType.OutsideDoor => "OUTSIDE DOOR",
+                    _ => "DOOR"
+                };
+                StyleModeText.Text = $"Mode: {doorTypeName} (procedural)";
+                RawStyleText.Text = $"StyleIndex={f.StyleIndex} (ignored for doors)";
+                RecipeText.Text = "Doors render as black rectangles. Style is ignored by the engine.";
+                RawStylePanel.Visibility = Visibility.Visible;
+                PaintedPanel.Visibility = Visibility.Collapsed;
+                return;
+            }
+
             if (_dstyles.Length == 0 || f.StyleIndex >= _dstyles.Length)
             {
                 StyleModeText.Text = "Mode: (unknown - missing dstyles)";
@@ -322,7 +409,6 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             short val = _dstyles[f.StyleIndex];
             if (val >= 0)
             {
-                // RAW
                 StyleModeText.Text = "Mode: RAW style";
                 RawStyleText.Text = $"Raw style id (style.tma): {val}";
                 RecipeText.Text = BuildRawRecipeString(val);
@@ -331,7 +417,6 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             }
             else
             {
-                // PAINTED: negative value means DStorey id (1-based)
                 int sid = -val;
                 StyleModeText.Text = $"Mode: PAINTED (DStorey {sid})";
 
@@ -348,11 +433,8 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
 
                 var ds = _storeys[sid - 1];
                 PaintedSummaryText.Text = $"Base style: {ds.StyleIndex}   PaintMem: Index={ds.PaintIndex} Count={ds.Count}";
-
-                // Base 5-slot recipe from style.tma
                 RecipeText.Text = BuildRawRecipeString(ds.StyleIndex);
 
-                // Slice paint bytes
                 var bytes = GetPaintBytes(ds);
                 PaintBytesHexText.Text = ToHexLine(bytes);
 
@@ -376,57 +458,12 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
         }
 
         private static bool UsesVerticalUnitsAsPanels(FacetType t) =>
-                            t == FacetType.Fence ||
-                            t == FacetType.FenceFlat ||
-                            t == FacetType.FenceBrick ||
-                            t == FacetType.Ladder ||
-                            t == FacetType.Trench;
-
-        private void FacetTypeCombo_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (_initializingTypeCombo) return;
-            if (FacetTypeCombo.SelectedItem is not FacetType newType ||
-                newType == _facet.Type)
-                return;
-
-            var acc = new BuildingsAccessor(MapDataService.Instance);
-
-            // Use the id you actually initialized in the ctor (_facetIndex1)
-            if (acc.TryUpdateFacetType(_facetIndex1, newType))
-            {
-                // Build a preview copy WITHOUT 'with'
-                var preview = CopyFacetWithType(_facet, newType);
-
-                // Optionally keep our local snapshot in sync
-                _facet = preview;
-
-                DrawPreview(preview);
-            }
-        }
-
-        private static DFacetRec CopyFacetWithType(DFacetRec f, FacetType newType)
-        {
-            return new DFacetRec(
-                newType,
-                f.X0, f.Z0, f.X1, f.Z1,
-                f.Height, f.FHeight,
-                f.StyleIndex, f.Building, f.Storey, f.Flags,
-                f.Y0, f.Y1,
-                f.BlockHeight,
-                f.Open,
-                f.Dfcache,   // <-- lowercase 'c'
-                f.Shake,
-                f.CutHole,
-                f.Counter0,
-                f.Counter1
-            );
-        }
-
+            t == FacetType.Fence || t == FacetType.FenceFlat ||
+            t == FacetType.FenceBrick || t == FacetType.Ladder || t == FacetType.Trench;
 
         private string BuildRawRecipeString(int rawStyleId)
         {
-            var svc = StyleDataService.Instance;
-            var tma = svc.TmaSnapshot;
+            var tma = StyleDataService.Instance.TmaSnapshot;
             if (tma == null) return "(style.tma not loaded)";
 
             int idx = StyleDataService.MapRawStyleIdToTmaIndex(rawStyleId);
@@ -442,19 +479,6 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
                 sb.Append($"[{i}] P{e.Page} Tx{e.Tx} Ty{e.Ty} F{e.Flip}");
             }
             return sb.ToString();
-        }
-
-        // If there are >1 rows, the TOP row (row==0) uses (base-1).
-        // If base-1 == 0, alias to 1. If only 1 row, just use base.
-        private static int StyleIdForRow(int baseId, int row, int panelsDown)
-        {
-            int n = NormalizeStyleId(baseId);
-            if (panelsDown > 1 && row == 0)
-            {
-                int cap = n - 1;
-                return NormalizeStyleId(cap);
-            }
-            return n;
         }
 
         private static string ToHexLine(byte[] data)
@@ -480,501 +504,46 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             return bytes;
         }
 
-        // Build the 5-slot ring of tile indices (0..63) for a raw style id.
-        // Each slot i uses Entries[i].Tx/Ty; we return Ty*8 + Tx for each.
-        // Build the 5-slot ring of *global* tile indices (texNNN) for a raw style id.
-        // Each slot i uses Entries[i].(Page,Tx,Ty); we return Page*64 + Ty*8 + Tx for each.
-        private bool GetStyleRing(int rawStyleId, out int[] ring, out IList<StyleTextureEntry> entries)
-        {
-            ring = Array.Empty<int>();
-            entries = Array.Empty<StyleTextureEntry>();
+        #endregion
 
-            var tma = StyleDataService.Instance.TmaSnapshot;
-            if (tma == null) return false;
+        #region Preview Drawing
 
-            int idx = StyleDataService.MapRawStyleIdToTmaIndex(rawStyleId); // 0->1, 1->1, else raw
-            if (idx < 0 || idx >= tma.TextureStyles.Count) return false;
-
-            var style = tma.TextureStyles[idx];
-            entries = style.Entries;
-            if (entries == null || entries.Count < 5) return false;
-
-            var r = new int[5];
-            for (int i = 0; i < 5; i++)
-            {
-                var e = entries[i];
-
-                // Global tex index NNN, matching texNNNhi.png
-                int indexInPage = e.Ty * 8 + e.Tx;      // 0..63 within the 8×8 page
-                int globalIndex = e.Page * 64 + indexInPage;
-
-                r[i] = globalIndex;
-            }
-
-            ring = r;
-            return true;
-        }
-
-
-
-        [MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-        private static int Wrap(int x, int n) => n <= 0 ? 0 : ((x % n) + n) % n;
-
-        [MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-        private static int Mod64(int x) => (x & 63);
-
-        /// <summary>
-        /// Resolve (page, tx, ty, flip) for one cell of the facet preview.
-        /// col: 0..panelsAcross-1
-        /// rowFromBottom: 0 = ground row, panelsDown-1 = top row
-        /// </summary>
-        private bool TryResolvePanelTile(int col, int rowFromBottom, int panelsAcross, int panelsDown,
-                                         out byte page, out byte tx, out byte ty, out byte flip)
-        {
-            page = tx = ty = flip = 0;
-
-            if (_dstyles == null || _dstyles.Length == 0)
-                return false;
-            if (rowFromBottom < 0 || rowFromBottom >= panelsDown)
-                return false;
-
-            // --- Match FACET_draw's style_index stepping ---
-            bool twoTextured = (_facet.Flags & FacetFlags.TwoTextured) != 0;
-            bool twoSided = (_facet.Flags & FacetFlags.TwoSided) != 0;
-            bool hugFloor = (_facet.Flags & FacetFlags.HugFloor) != 0;
-
-            int styleIndexStep = (!hugFloor && (twoTextured || twoSided)) ? 2 : 1;
-
-            int styleIndexStart = _facet.StyleIndex;
-            if (twoTextured)
-                styleIndexStart--;   // FACET_draw does this
-
-            // ----- Row remap for painted section -----
-            // We treat the top row (rowFromBottom == panelsDown-1) as the cap row and
-            // leave it alone. The painted rows are [0 .. paintedRows-1].
-            int paintedRows = Math.Max(0, panelsDown - 1);
-
-            int styleRow = rowFromBottom;
-
-            if (paintedRows > 0 && rowFromBottom < paintedRows)
-            {
-                // Rotate the painted rows by +1:
-                //   desired row 0 uses former row 1's style,
-                //   desired row 1 uses former row 2's style,
-                //   desired row 2 uses former row 3's style,
-                //   desired row 3 uses former row 0's style, etc.
-                styleRow = (rowFromBottom + 1) % paintedRows;
-            }
-            // else: top cap row or non-painted case → use rowFromBottom as-is.
-
-            int styleIndexForRow = styleIndexStart + styleRow * styleIndexStep;
-            if (styleIndexForRow < 0 || styleIndexForRow >= _dstyles.Length)
-                return false;
-
-            short dval = _dstyles[styleIndexForRow];
-
-#if DEBUG
-            // Row-level debug: which dstyles entry / DStorey is being used for this cell?
-            if (dval < 0)
-            {
-                int sid = -dval;
-                int dsIndex = sid - 1;
-                if (_storeys != null && dsIndex >= 0 && dsIndex < _storeys.Length)
-                {
-                    var ds = _storeys[dsIndex];
-                    var bytes = GetPaintBytes(ds);
-                    string hex = ToHexLine(bytes);
-
-                    Debug.WriteLine(
-                        $"[PaintRowDebug] facet={_facetIndex1} col={col} rowBottom={rowFromBottom} " +
-                        $"panelsAcross={panelsAcross} panelsDown={panelsDown} " +
-                        $"styleStart={styleIndexStart} styleRow={styleRow} styleIdxRow={styleIndexForRow} " +
-                        $"dstyles[{styleIndexForRow}]={dval} (PAINTED sid={sid} baseStyle={ds.StyleIndex} " +
-                        $"paintIndex={ds.PaintIndex} count={ds.Count} bytes={hex})");
-                }
-                else
-                {
-                    Debug.WriteLine(
-                        $"[PaintRowDebug] facet={_facetIndex1} col={col} rowBottom={rowFromBottom} " +
-                        $"panelsAcross={panelsAcross} panelsDown={panelsDown} " +
-                        $"styleStart={styleIndexStart} styleRow={styleRow} styleIdxRow={styleIndexForRow} " +
-                        $"dstyles[{styleIndexForRow}]={dval} (PAINTED sid={sid} but storey out of range)");
-                }
-            }
-            else
-            {
-                Debug.WriteLine(
-                    $"[PaintRowDebug] facet={_facetIndex1} col={col} rowBottom={rowFromBottom} " +
-                    $"panelsAcross={panelsAcross} panelsDown={panelsDown} " +
-                    $"styleStart={styleIndexStart} styleRow={styleRow} styleIdxRow={styleIndexForRow} " +
-                    $"dstyles[{styleIndexForRow}]={dval} (RAW)");
-            }
-#endif
-
-            int count = panelsAcross + 1;   // like Fallen: segments+1
-            int pos = (panelsAcross - 1 - col);      // RIGHT-most first, then leftwards
-
-            // Fallen-like core resolver: raw vs painted.
-            if (!TryResolveTileIdForCell(dval, pos, count, out int tileId, out byte flipFlag))
-                return false;
-
-            if (tileId < 0)
-                return false;
-
-            // Map tileId -> hi-res (page, tx, ty) so texNNNhi uses N = tileId.
-            int hiPage = tileId / 64;
-            int idxInPage = tileId % 64;
-            int txInt = idxInPage % 8;
-            int tyInt = idxInPage / 8;
-
-            page = (byte)hiPage;
-            tx = (byte)txInt;
-            ty = (byte)tyInt;
-            flip = flipFlag;
-
-#if DEBUG
-            Debug.WriteLine(
-                $"[PaintCellResult] facet={_facetIndex1} col={col} rowBottom={rowFromBottom} " +
-                $"dstyle={dval} -> tileId={tileId} (tex{tileId:D3}) page={page} tx={tx} ty={ty} flip={flip}");
-#endif
-
-            return true;
-        }
-
-        /// <summary>
-        /// Core Fallen-like resolve: given a dstyles entry value (raw or painted),
-        /// and horizontal pos/count, compute the global texture id ("tileId") and flip flag.
-        /// This emulates the C code paths in texture_quad/get_texture_page:
-        ///   - texture_style &lt; 0 → DStorey + paint_mem bytes
-        ///   - texture_style ≥ 0 → raw style → style.tma
-        /// </summary>
-        private bool TryResolveTileIdForCell(short dstyleValue, int pos, int count,
-                                             out int tileId, out byte flip)
-        {
-            tileId = -1;
-            flip = 0;
-
-#if DEBUG
-            Debug.WriteLine(
-                $"[PaintCellEnter] facet={_facetIndex1} pos={pos} count={count} dstyle={dstyleValue}");
-#endif
-
-            if (dstyleValue >= 0)
-            {
-                // RAW style.
-                bool ok = ResolveRawTileId(dstyleValue, pos, count, out tileId, out flip);
-
-#if DEBUG
-                Debug.WriteLine(
-                    $"[PaintCellRaw] facet={_facetIndex1} pos={pos} count={count} " +
-                    $"style={dstyleValue} -> ok={ok} tileId={tileId} flip={flip}");
-#endif
-                return ok;
-            }
-            else
-            {
-                // PAINTED: negative DStorey id (1-based).
-                int storeyId = -dstyleValue;  // 1-based
-
-                if (_storeys == null || storeyId < 1 || storeyId > _storeys.Length)
-                {
-#if DEBUG
-                    Debug.WriteLine(
-                        $"[PaintCellPainted] facet={_facetIndex1} pos={pos} count={count} " +
-                        $"sid={storeyId} OUT OF RANGE (storeys={_storeys?.Length ?? 0})");
-#endif
-                    return false;
-                }
-
-                var ds = _storeys[storeyId - 1];
-
-#if DEBUG
-                var bytes = GetPaintBytes(ds);
-                string hex = ToHexLine(bytes);
-                Debug.WriteLine(
-                    $"[PaintCellPainted] facet={_facetIndex1} pos={pos} count={count} " +
-                    $"sid={storeyId} baseStyle={ds.StyleIndex} paintIndex={ds.PaintIndex} " +
-                    $"ds.Count={ds.Count} bytes={hex}");
-#endif
-
-                bool ok = ResolvePaintedTileId(ds, pos, count, out tileId, out flip);
-
-#if DEBUG
-                Debug.WriteLine(
-                    $"[PaintCellPaintedResult] facet={_facetIndex1} pos={pos} count={count} " +
-                    $"sid={storeyId} -> ok={ok} tileId={tileId} flip={flip}");
-#endif
-
-                return ok;
-            }
-        }
-
-        /// <summary>
-        /// Resolve RAW style: use style.tma row for 'rawStyleId' and map TEXTURE_PIECE to a slot.
-        /// We then compute a global tileId = Page*64 + Ty*8 + Tx.
-        /// </summary>
-        private bool ResolveRawTileId(int rawStyleId, int pos, int count,
-                                      out int tileId, out byte flip)
-        {
-            tileId = -1;
-            flip = 0;
-
-            var tma = StyleDataService.Instance.TmaSnapshot;
-            if (tma == null)
-                return false;
-
-            int styleId = rawStyleId;
-            if (styleId <= 0)
-                styleId = 1;   // Fallen: if(texture_style==0) texture_style=1
-
-            int idx = StyleDataService.MapRawStyleIdToTmaIndex(styleId);
-            if (idx < 0 || idx >= tma.TextureStyles.Count)
-                return false;
-
-            var style = tma.TextureStyles[idx];
-            var entries = style.Entries;
-            if (entries == null || entries.Count == 0)
-                return false;
-
-            // TEXTURE_PIECE mapping (deterministic, no randomness):
-            // pos == 0       → RIGHT
-            // pos == count-2 → LEFT
-            // otherwise      → MIDDLE
-            // We map:
-            //   RIGHT  → slot 0
-            //   LEFT   → slot 1
-            //   MIDDLE → slot 2
-            int pieceIndex;
-            if (pos == 0)
-                pieceIndex = 0;        // RIGHT
-            else if (pos == count - 2)
-                pieceIndex = 1;        // LEFT
-            else
-                pieceIndex = 2;        // MIDDLE
-
-            if (pieceIndex >= entries.Count)
-                pieceIndex = entries.Count - 1;
-
-            var e = entries[pieceIndex];
-
-            // Global "tile id" like original 'page' in older engines.
-            tileId = e.Page * 64 + e.Ty * 8 + e.Tx;
-            flip = e.Flip;
-            return true;
-        }
-
-        /// <summary>
-        /// PAINTED: use DStorey + paint_mem bytes.
-        /// Mirrors texture_quad / get_texture_page semantics:
-        ///   - b = paint_mem[Index + pos]
-        ///   - bit7 = flip; low 7 bits = texture index (0..127)
-        ///   - 0 => "no paint" → fall back to base style.
-        /// </summary>
-        private bool ResolvePaintedTileId(BuildingArrays.DStoreyRec ds,
-                                          int pos, int count,
-                                          out int tileId, out byte flip)
-        {
-            tileId = -1;
-            flip = 0;
-
-            int baseStyle = ds.StyleIndex;
-
-            if (_paintMem == null || _paintMem.Length == 0 || ds.Count == 0)
-            {
-                // No paint bytes at all → act like RAW base style.
-                return ResolveRawTileId(baseStyle, pos, count, out tileId, out flip);
-            }
-
-            int paintStart = ds.PaintIndex;
-            int paintCount = ds.Count;
-
-            if (paintStart < 0 || paintStart + paintCount > _paintMem.Length)
-            {
-                // Corrupt / out of range → fall back to base.
-                return ResolveRawTileId(baseStyle, pos, count, out tileId, out flip);
-            }
-
-            if (pos >= paintCount)
-            {
-                // Above painted range: "else texture_style = p_storey->Style"
-                return ResolveRawTileId(baseStyle, pos, count, out tileId, out flip);
-            }
-
-            byte raw = _paintMem[paintStart + pos];
-
-            // High bit = flip X
-            flip = (byte)(((raw & 0x80) != 0) ? 1 : 0);
-
-            // Low 7 bits = "page"/texture index 0..127
-            int val = raw & 0x7F;
-
-            if (val == 0)
-            {
-                // 0 means "no paint" → use base style.
-                return ResolveRawTileId(baseStyle, pos, count, out tileId, out flip);
-            }
-
-            // Here 'val' is the global texture id we want (e.g. 10, 15, 16, 17).
-            tileId = val;
-            return true;
-        }
-
-        /// <summary>
-        /// RAW style: use style.tma mapping for (styleId, texturePiece).
-        /// texturePiece: 0 = RIGHT, 1 = LEFT, 2 = MIDDLE.
-        /// We map to slots: 0→0, 1→1, 2→2 (MIDDLE family).
-        /// </summary>
-        private bool ResolveRawTile(int rawStyleId, int texturePiece,
-                                    out byte page, out byte tx, out byte ty, out byte flip)
-        {
-            page = tx = ty = flip = 0;
-
-            // Map piece → slot index in TMA row.
-            int slot = texturePiece switch
-            {
-                0 => 0, // RIGHT
-                1 => 1, // LEFT
-                _ => 2  // MIDDLE/M1/M2 family
-            };
-
-            if (!TryGetTmaEntry(rawStyleId, slot, out StyleTextureEntry entry))
-                return false;
-
-            page = (byte)entry.Page;
-            tx = (byte)entry.Tx;
-            ty = (byte)entry.Ty;
-            flip = (byte)entry.Flip;
-            return true;
-        }
-
-        /// <summary>
-        /// PAINTED: we have a DStorey row with base StyleIndex + paint_mem bytes.
-        /// We mimic Fallen texture_quad/get_texture_page:
-        ///   - Take paint byte for this column (wrapping across Count).
-        ///   - Bit 7 = flip X; low 7 bits = "page" override.
-        ///   - If low 7 bits == 0 → fall back to base style.
-        /// For our hi-res tiles we:
-        ///   - Use 'pageOverride' (if non-zero) as the PAGE,
-        ///   - Use base style's Tx/Ty as the tile inside that page,
-        ///   - XOR flip from base style with paint flip bit.
-        /// </summary>
-        private bool ResolvePaintedTile(BuildingArrays.DStoreyRec ds,
-                                        int texturePiece, int col, int panelsAcross,
-                                        out byte page, out byte tx, out byte ty, out byte flip)
-        {
-            page = tx = ty = flip = 0;
-
-            // Base style from DStorey
-            int baseStyleId = ds.StyleIndex;
-            if (baseStyleId <= 0)
-                baseStyleId = 1;
-
-            // Get base entry from style.tma for orientation and Tx/Ty.
-            if (!ResolveRawTile(baseStyleId, texturePiece, out byte basePage, out byte baseTx, out byte baseTy, out byte baseFlip))
-                return false;
-
-            byte finalPage = basePage;
-            byte finalTx = baseTx;
-            byte finalTy = baseTy;
-            byte finalFlip = baseFlip;
-
-            // No paint_mem or zero count -> behave like RAW base style.
-            if (_paintMem == null || _paintMem.Length == 0 || ds.Count == 0)
-            {
-                page = finalPage; tx = finalTx; ty = finalTy; flip = finalFlip;
-                return true;
-            }
-
-            int paintStart = ds.PaintIndex;
-            int paintCount = ds.Count;
-
-            if (paintStart < 0 || paintStart + paintCount > _paintMem.Length)
-            {
-                // Corrupt indices; fall back to base.
-                page = finalPage; tx = finalTx; ty = finalTy; flip = finalFlip;
-                return true;
-            }
-
-            // Fallen uses 'pos' horizontally; we clamp/wrap across Count.
-            int paintIx = paintStart + (col % paintCount);
-            byte paintByte = _paintMem[paintIx];
-
-            byte paintFlip = (byte)((paintByte & 0x80) != 0 ? 1 : 0);
-            byte paintPage = (byte)(paintByte & 0x7F);
-
-            if (paintPage == 0)
-            {
-                // "no paint" for this column → base style only.
-                page = finalPage;
-                tx = finalTx;
-                ty = finalTy;
-                flip = finalFlip;
-                return true;
-            }
-
-            // Painted: override PAGE but keep Tx/Ty from base style.
-            finalPage = paintPage;
-            finalFlip = (byte)(finalFlip ^ paintFlip); // XOR base flip with paint flip bit
-
-            page = finalPage;
-            tx = finalTx;
-            ty = finalTy;
-            flip = finalFlip;
-            return true;
-        }
-
-        // Resolve dstyles → base style (or DStorey base).
-        private bool TryResolveBase(ushort styleIndex, out int baseStyleId, out bool painted, out BuildingArrays.DStoreyRec ds)
-        {
-            baseStyleId = -1;
-            painted = false;
-            ds = default;
-
-            if (_dstyles == null || styleIndex >= _dstyles.Length) return false;
-
-            short val = _dstyles[styleIndex];
-            if (val >= 0)
-            {
-                baseStyleId = NormalizeStyleId(val);
-                return true;
-            }
-
-            // painted
-            painted = true;
-            int sid = -val;         // 1-based
-            int idx = sid - 1;
-            if (idx < 0 || idx >= _storeys.Length) return false;
-
-            ds = _storeys[idx];
-            baseStyleId = NormalizeStyleId(ds.StyleIndex);
-            return true;
-        }
-
-        // ---------- Preview drawing ----------
         private void DrawPreview(DFacetRec f)
         {
-            // Horizontal panels = distance in tiles along X/Z (each tile = one 64px panel).
+            // Check if this is a ladder - render specially
+            if (f.Type == FacetType.Ladder)
+            {
+                DrawLadderPreview(f);
+                return;
+            }
+
+            // Check if this is a door type - render as black rectangle
+            if (f.Type == FacetType.Door || f.Type == FacetType.InsideDoor || f.Type == FacetType.OutsideDoor)
+            {
+                DrawDoorPreview(f);
+                return;
+            }
+
             int dx = Math.Abs(f.X1 - f.X0);
             int dz = Math.Abs(f.Z1 - f.Z0);
             int panelsAcross = Math.Max(dx, dz);
             if (panelsAcross <= 0) panelsAcross = 1;
 
-            // Vertical panels from pixel height: Height is 16px units, FHeight is pixels.
-            const int PanelPx = 64;
             int totalPixelsY = f.Height * 16 + f.FHeight;
-            int panelsDown = Math.Max(1, (totalPixelsY + (PanelPx - 1)) / PanelPx); // ceil-div
+            int panelsDown = Math.Max(1, (totalPixelsY + (PanelPx - 1)) / PanelPx);
 
             int width = panelsAcross * PanelPx;
             int height = panelsDown * PanelPx;
 
             PanelCanvas.Children.Clear();
             GridCanvas.Children.Clear();
-            PanelCanvas.Width = width; PanelCanvas.Height = height;
-            GridCanvas.Width = width; GridCanvas.Height = height;
+            PanelCanvas.Width = width;
+            PanelCanvas.Height = height;
+            GridCanvas.Width = width;
+            GridCanvas.Height = height;
 
             for (int rowFromTop = 0; rowFromTop < panelsDown; rowFromTop++)
             {
-                // Engine logic is bottom-up. Convert UI row → "engine row".
                 int rowFromBottom = panelsDown - 1 - rowFromTop;
 
                 for (int col = 0; col < panelsAcross; col++)
@@ -982,67 +551,36 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
                     if (TryResolvePanelTile(col, rowFromBottom, panelsAcross, panelsDown,
                                             out byte page, out byte tx, out byte ty, out byte flip))
                     {
-                        int tileId = page * 64 + ty * 8 + tx;   // global tile id
+                        int tileId = page * 64 + ty * 8 + tx;
                         string tooltipText = $"tex{tileId:D3}hi";
-
-#if DEBUG
-                        Debug.WriteLine(
-                            $"[FacetPreview] r(bottom)={rowFromBottom} c={col} pd={panelsDown} " +
-                            $"-> page={page} tx={tx} ty={ty} flip={flip} (tileId={tileId}, {tooltipText}.png)");
-#endif
 
                         if (TryLoadTileBitmap(page, tx, ty, flip, out var bmp))
                         {
-                            var img = new System.Windows.Controls.Image
+                            var img = new Image
                             {
                                 Width = PanelPx,
                                 Height = PanelPx,
                                 Source = bmp,
                                 ToolTip = tooltipText
                             };
-
                             Canvas.SetLeft(img, col * PanelPx);
                             Canvas.SetTop(img, rowFromTop * PanelPx);
                             PanelCanvas.Children.Add(img);
                         }
                         else
                         {
-                            var rect = new System.Windows.Shapes.Rectangle
-                            {
-                                Width = PanelPx,
-                                Height = PanelPx,
-                                Fill = new SolidColorBrush(Color.FromRgb(0x55, 0x58, 0x5E)),
-                                ToolTip = tooltipText
-                            };
-                            Canvas.SetLeft(rect, col * PanelPx);
-                            Canvas.SetTop(rect, rowFromTop * PanelPx);
-                            PanelCanvas.Children.Add(rect);
+                            AddPlaceholderRect(col, rowFromTop, tooltipText);
                         }
                     }
                     else
                     {
-                        var rect = new System.Windows.Shapes.Rectangle
-                        {
-                            Width = PanelPx,
-                            Height = PanelPx,
-                            Fill = new SolidColorBrush(Color.FromRgb(0x55, 0x58, 0x5E)),
-                            ToolTip = "(no tile)"
-                        };
-                        Canvas.SetLeft(rect, col * PanelPx);
-                        Canvas.SetTop(rect, rowFromTop * PanelPx);
-                        PanelCanvas.Children.Add(rect);
-
-#if DEBUG
-                        Debug.WriteLine(
-                            $"[FacetPreview] resolve failed r(bottom)={rowFromBottom} c={col} pd={panelsDown}");
-#endif
+                        AddPlaceholderRect(col, rowFromTop, "(no tile)");
                     }
                 }
             }
 
-            // 64×64 grid + outline
             DrawGrid(GridCanvas, width, height, PanelPx, PanelPx);
-            var outline = new System.Windows.Shapes.Rectangle
+            var outline = new Rectangle
             {
                 Width = width,
                 Height = height,
@@ -1053,91 +591,240 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             GridCanvas.Children.Add(outline);
         }
 
-
-        private bool TryResolveVariantAndWorld(out string? variant, out int world)
+        /// <summary>
+        /// Draws a ladder preview with white rungs and side rails.
+        /// Ladders are always 1 cell wide but can be multiple storeys tall.
+        /// Applies the ~67% width scaling that the game uses.
+        /// </summary>
+        private void DrawLadderPreview(DFacetRec f)
         {
-            variant = null;
-            world = 0;
+            // Ladder constants
+            const int RungsPerSegment = 4;      // 4 rungs per 64px segment
+            const int RungThickness = 4;        // 4px thick rungs
+            const int RailWidth = 4;            // 4px wide side rails
+            const double WidthScale = 0.67;     // ~67% width scaling the game applies
 
-            try
+            // Ladders are always 1 cell wide
+            int panelsAcross = 1;
+
+            // Calculate height in storeys/segments
+            int totalPixelsY = f.Height * 16 + f.FHeight;
+            int panelsDown = Math.Max(1, (totalPixelsY + (PanelPx - 1)) / PanelPx);
+
+            // Full dimensions before scaling
+            int fullWidth = panelsAcross * PanelPx;
+            int height = panelsDown * PanelPx;
+
+            // Apply width scaling (ladder is narrower than a full cell)
+            int scaledWidth = (int)(fullWidth * WidthScale);
+            int widthOffset = (fullWidth - scaledWidth) / 2; // Center the ladder
+
+            // Canvas setup
+            PanelCanvas.Children.Clear();
+            GridCanvas.Children.Clear();
+            PanelCanvas.Width = fullWidth;
+            PanelCanvas.Height = height;
+            GridCanvas.Width = fullWidth;
+            GridCanvas.Height = height;
+
+            // Background (dark)
+            var background = new Rectangle
             {
-                var shell = System.Windows.Application.Current.MainWindow?.DataContext;
-                if (shell == null)
-                {
-                    System.Diagnostics.Debug.WriteLine("[FacetPreview] TryResolveVariantAndWorld: MainWindow.DataContext is null.");
-                    return false;
-                }
+                Width = fullWidth,
+                Height = height,
+                Fill = new SolidColorBrush(Color.FromRgb(0x30, 0x33, 0x38))
+            };
+            PanelCanvas.Children.Add(background);
 
-                var shellType = shell.GetType();
-                var mapProp = shellType.GetProperty("Map");
-                var map = mapProp?.GetValue(shell);
-                if (map == null)
-                {
-                    System.Diagnostics.Debug.WriteLine("[FacetPreview] TryResolveVariantAndWorld: 'Map' property not found or null on shell.");
-                    return false;
-                }
+            // Ladder brush (white)
+            var ladderBrush = Brushes.White;
 
-                var mapType = map.GetType();
-                // REQUIRED: bool UseBetaTextures, int TextureWorld
-                var useBetaProp = mapType.GetProperty("UseBetaTextures");
-                var worldProp = mapType.GetProperty("TextureWorld");
-
-                if (useBetaProp == null || worldProp == null)
-                {
-                    System.Diagnostics.Debug.WriteLine("[FacetPreview] TryResolveVariantAndWorld: Map.UseBetaTextures or Map.TextureWorld not found.");
-                    return false;
-                }
-
-                if (useBetaProp.GetValue(map) is bool useBeta &&
-                    worldProp.GetValue(map) is int w &&
-                    w > 0)
-                {
-                    variant = useBeta ? "Beta" : "Release";
-                    world = w;
-                    System.Diagnostics.Debug.WriteLine($"[FacetPreview] TryResolveVariantAndWorld: Variant='{variant}', World={world} (from Map).");
-                    return true;
-                }
-
-                System.Diagnostics.Debug.WriteLine("[FacetPreview] TryResolveVariantAndWorld: Values present but invalid (world <= 0?).");
-                return false;
-            }
-            catch (Exception ex)
+            // Draw left rail
+            var leftRail = new Rectangle
             {
-                System.Diagnostics.Debug.WriteLine($"[FacetPreview] TryResolveVariantAndWorld: exception: {ex.Message}");
-                return false;
+                Width = RailWidth,
+                Height = height,
+                Fill = ladderBrush
+            };
+            Canvas.SetLeft(leftRail, widthOffset);
+            Canvas.SetTop(leftRail, 0);
+            PanelCanvas.Children.Add(leftRail);
+
+            // Draw right rail
+            var rightRail = new Rectangle
+            {
+                Width = RailWidth,
+                Height = height,
+                Fill = ladderBrush
+            };
+            Canvas.SetLeft(rightRail, widthOffset + scaledWidth - RailWidth);
+            Canvas.SetTop(rightRail, 0);
+            PanelCanvas.Children.Add(rightRail);
+
+            // Draw rungs - 4 per segment, evenly spaced
+            int totalRungs = panelsDown * RungsPerSegment;
+            double rungSpacing = (double)height / totalRungs;
+            int rungWidth = scaledWidth - (2 * RailWidth); // Width between rails
+
+            for (int i = 0; i < totalRungs; i++)
+            {
+                // Position rungs from bottom to top, offset by half spacing to center them
+                double rungY = height - (i + 0.5) * rungSpacing - (RungThickness / 2.0);
+
+                var rung = new Rectangle
+                {
+                    Width = rungWidth,
+                    Height = RungThickness,
+                    Fill = ladderBrush
+                };
+                Canvas.SetLeft(rung, widthOffset + RailWidth);
+                Canvas.SetTop(rung, rungY);
+                PanelCanvas.Children.Add(rung);
             }
+
+            // Draw grid lines for each storey segment
+            DrawGrid(GridCanvas, fullWidth, height, PanelPx, PanelPx);
+
+            // Draw outline
+            var outline = new Rectangle
+            {
+                Width = fullWidth,
+                Height = height,
+                Stroke = Brushes.White,
+                StrokeThickness = 1,
+                Fill = Brushes.Transparent
+            };
+            GridCanvas.Children.Add(outline);
+
+            // Add info label
+            var infoText = new TextBlock
+            {
+                Text = $"LADDER\n{panelsDown} storey(s)\n{totalRungs} rungs",
+                Foreground = Brushes.Yellow,
+                FontSize = 10,
+                FontWeight = FontWeights.Bold,
+                Background = new SolidColorBrush(Color.FromArgb(0x80, 0x00, 0x00, 0x00)),
+                Padding = new Thickness(4, 2, 4, 2)
+            };
+            Canvas.SetLeft(infoText, 2);
+            Canvas.SetTop(infoText, 2);
+            GridCanvas.Children.Add(infoText);
         }
 
-        // Resolve a raw style id (style.tma row) for a given column.
-        // We *ignore* vertical row for raw styles (walls are vertically uniform).
-        private bool ResolveRawFromStyle(int rawStyleId, int col,
-                                         out byte page, out byte tx, out byte ty, out byte flip)
+        /// <summary>
+        /// Draws a door preview as a black 64x64 rectangle.
+        /// Doors are always 1 cell wide and 1 cell high.
+        /// OutsideDoors can be wider but we still show based on actual facet dimensions.
+        /// </summary>
+        private void DrawDoorPreview(DFacetRec f)
         {
-            page = tx = ty = flip = 0;
+            // Calculate dimensions based on facet coords
+            int dx = Math.Abs(f.X1 - f.X0);
+            int dz = Math.Abs(f.Z1 - f.Z0);
+            int panelsAcross = Math.Max(dx, dz);
+            if (panelsAcross <= 0) panelsAcross = 1;
 
-            rawStyleId = NormalizeStyleId(rawStyleId);
-            if (!GetStyleRing(rawStyleId, out var ring, out var entries))
-                return false;
+            // Doors are typically 1 cell high, but respect actual height
+            int totalPixelsY = f.Height * 16 + f.FHeight;
+            int panelsDown = Math.Max(1, (totalPixelsY + (PanelPx - 1)) / PanelPx);
 
-            int ringLen = ring.Length;
-            if (ringLen <= 0 || entries.Count < ringLen)
-                return false;
+            int width = panelsAcross * PanelPx;
+            int height = panelsDown * PanelPx;
 
-            // Approximate Fallen’s RIGHT/LEFT/MIDDLE selection with a simple horizontal cycle.
-            int slot = col % ringLen;
+            // Canvas setup
+            PanelCanvas.Children.Clear();
+            GridCanvas.Children.Clear();
+            PanelCanvas.Width = width;
+            PanelCanvas.Height = height;
+            GridCanvas.Width = width;
+            GridCanvas.Height = height;
 
-            var e = entries[slot];
-            flip = e.Flip;
-            page = e.Page;
+            // Draw black rectangle for the door
+            var doorRect = new Rectangle
+            {
+                Width = width,
+                Height = height,
+                Fill = Brushes.Black
+            };
+            PanelCanvas.Children.Add(doorRect);
 
-            int idxInPage = ring[slot];   // 0..63
-            tx = (byte)(idxInPage & 7);
-            ty = (byte)(idxInPage >> 3);
+            // Draw a simple door frame/outline in dark gray
+            var frameRect = new Rectangle
+            {
+                Width = width - 8,
+                Height = height - 4,
+                Stroke = new SolidColorBrush(Color.FromRgb(0x40, 0x40, 0x40)),
+                StrokeThickness = 2,
+                Fill = Brushes.Transparent
+            };
+            Canvas.SetLeft(frameRect, 4);
+            Canvas.SetTop(frameRect, 2);
+            PanelCanvas.Children.Add(frameRect);
 
-            return true;
+            // Draw a door handle (small circle on the right side)
+            var handle = new Ellipse
+            {
+                Width = 6,
+                Height = 6,
+                Fill = new SolidColorBrush(Color.FromRgb(0x60, 0x60, 0x60))
+            };
+            Canvas.SetLeft(handle, width - 16);
+            Canvas.SetTop(handle, height / 2 - 3);
+            PanelCanvas.Children.Add(handle);
+
+            // Draw grid lines
+            DrawGrid(GridCanvas, width, height, PanelPx, PanelPx);
+
+            // Draw outline
+            var outline = new Rectangle
+            {
+                Width = width,
+                Height = height,
+                Stroke = Brushes.White,
+                StrokeThickness = 1,
+                Fill = Brushes.Transparent
+            };
+            GridCanvas.Children.Add(outline);
+
+            // Determine door type name
+            string doorTypeName = f.Type switch
+            {
+                FacetType.Door => "DOOR",
+                FacetType.InsideDoor => "INSIDE DOOR",
+                FacetType.OutsideDoor => "OUTSIDE DOOR",
+                _ => "DOOR"
+            };
+
+            // Add info label
+            var infoText = new TextBlock
+            {
+                Text = $"{doorTypeName}\n{panelsAcross}×{panelsDown} cell(s)",
+                Foreground = Brushes.Cyan,
+                FontSize = 10,
+                FontWeight = FontWeights.Bold,
+                Background = new SolidColorBrush(Color.FromArgb(0x80, 0x00, 0x00, 0x00)),
+                Padding = new Thickness(4, 2, 4, 2)
+            };
+            Canvas.SetLeft(infoText, 2);
+            Canvas.SetTop(infoText, 2);
+            GridCanvas.Children.Add(infoText);
         }
 
-        private static void DrawGrid(System.Windows.Controls.Canvas c, int width, int height, int stepX, int stepY)
+        private void AddPlaceholderRect(int col, int rowFromTop, string tooltip)
+        {
+            var rect = new Rectangle
+            {
+                Width = PanelPx,
+                Height = PanelPx,
+                Fill = new SolidColorBrush(Color.FromRgb(0x55, 0x58, 0x5E)),
+                ToolTip = tooltip
+            };
+            Canvas.SetLeft(rect, col * PanelPx);
+            Canvas.SetTop(rect, rowFromTop * PanelPx);
+            PanelCanvas.Children.Add(rect);
+        }
+
+        private static void DrawGrid(Canvas c, int width, int height, int stepX, int stepY)
         {
             var g = new SolidColorBrush(Color.FromArgb(0x60, 0xFF, 0xFF, 0xFF));
             for (int x = stepX; x < width; x += stepX)
@@ -1152,220 +839,213 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             }
         }
 
-        // ---------- RAW vs PAINTED resolve ----------
-        /// <summary>
-        /// Resolve (Page,Tx,Ty,Flip) for a given horizontal panel index.
-        /// RAW:   dstyles[styleIdx] >= 0 → use that styleId’s slot (mod 5).
-        /// PAINT: dstyles[styleIdx] <  0 → base style from DStorey + page override from paint_mem (if any).
-        /// </summary>
-        private bool TryResolveTileForPanel(ushort styleIndex, int col, int row,
-                                    out TextureEntry entry, out byte? pageOverride)
+        #endregion
+
+
+        #region Tile Resolution (abbreviated - keep your existing implementation)
+
+        private bool TryResolvePanelTile(int col, int rowFromBottom, int panelsAcross, int panelsDown,
+                                         out byte page, out byte tx, out byte ty, out byte flip)
         {
-            entry = default; pageOverride = null;
-            if (_dstyles == null || styleIndex >= _dstyles.Length) return false;
+            page = tx = ty = flip = 0;
 
-            short dval = _dstyles[styleIndex];
-            int slot = col % 5;                // matches the game’s slot cycling
+            if (_dstyles == null || _dstyles.Length == 0) return false;
+            if (rowFromBottom < 0 || rowFromBottom >= panelsDown) return false;
 
-            // --- work out the base style id (raw or painted) ---
-            int baseStyleId;
-            BuildingArrays.DStoreyRec? ds = null;
+            bool twoTextured = (_facet.Flags & FacetFlags.TwoTextured) != 0;
+            bool twoSided = (_facet.Flags & FacetFlags.TwoSided) != 0;
+            bool hugFloor = (_facet.Flags & FacetFlags.HugFloor) != 0;
 
-            if (dval >= 0)
-            {
-                baseStyleId = dval;
-            }
-            else
-            {
-                int sid = -dval;
-                if (sid < 1 || sid > _storeys.Length) return false;
-                ds = _storeys[sid - 1];
-                baseStyleId = ds.Value.StyleIndex;
+            int styleIndexStep = (!hugFloor && (twoTextured || twoSided)) ? 2 : 1;
+            int styleIndexStart = _facet.StyleIndex;
+            if (twoTextured) styleIndexStart--;
 
-                // pageOverride from paint_mem (clamped horizontally)
-                var bytes = GetPaintBytes(ds.Value);
-                if (bytes.Length > 0)
-                {
-                    int ix = Math.Min(col, bytes.Length - 1);
-                    pageOverride = (byte)(bytes[ix] & 0x7F);
-                }
-            }
+            int paintedRows = Math.Max(0, panelsDown - 1);
+            int styleRow = rowFromBottom;
+            if (paintedRows > 0 && rowFromBottom < paintedRows)
+                styleRow = (rowFromBottom + 1) % paintedRows;
 
-            // --- TOP CAP RULE ---
-            // Top row (row==0) of exterior normal walls uses the "cap" style = baseStyleId - 1 (if > 0)
-            if (row == 0 &&
-                _facet.Type == FacetType.Normal &&
-                (_facet.Flags & (FacetFlags.Inside | FacetFlags.TwoSided)) == 0 &&
-                baseStyleId > 0)
-            {
-                baseStyleId -= 1;
-            }
+            int styleIndexForRow = styleIndexStart + styleRow * styleIndexStep;
+            if (styleIndexForRow < 0 || styleIndexForRow >= _dstyles.Length) return false;
 
-            // fetch the TMA entry with effective style + slot
-            return TryGetTmaEntry(baseStyleId, slot, out entry);
+            short dval = _dstyles[styleIndexForRow];
+            int count = panelsAcross + 1;
+            int pos = panelsAcross - 1 - col;
+
+            if (!TryResolveTileIdForCell(dval, pos, count, out int tileId, out byte flipFlag)) return false;
+            if (tileId < 0) return false;
+
+            page = (byte)(tileId / 64);
+            int idxInPage = tileId % 64;
+            tx = (byte)(idxInPage % 8);
+            ty = (byte)(idxInPage / 8);
+            flip = flipFlag;
+
+            return true;
         }
 
-        // ---------- TMA + textures ----------
-        private async Task EnsureStylesLoadedAsync()
+        private bool TryResolveTileIdForCell(short dstyleValue, int pos, int count, out int tileId, out byte flip)
         {
-            // refuse to proceed if we didn't resolve Variant + World
-            if (string.IsNullOrWhiteSpace(_variant) || _worldNumber <= 0)
-            {
-                System.Diagnostics.Debug.WriteLine("[FacetPreview] EnsureStylesLoadedAsync: Variant/World unresolved — aborting (no defaults).");
-                return;
-            }
+            tileId = -1;
+            flip = 0;
 
-            var svc = StyleDataService.Instance;
-            if (svc.IsLoaded)
-            {
-                System.Diagnostics.Debug.WriteLine($"[FacetPreview] style.tma already loaded. Source hint: '{svc.CurrentPath ?? "(unknown)"}'.");
-                return;
-            }
+            if (dstyleValue >= 0)
+                return ResolveRawTileId(dstyleValue, pos, count, out tileId, out flip);
 
-            string packUri = $"pack://application:,,,/Assets/Textures/{_variant}/world{_worldNumber}/style.tma";
-            System.Diagnostics.Debug.WriteLine($"[FacetPreview] Trying embedded style.tma: {packUri}");
+            int storeyId = -dstyleValue;
+            if (_storeys == null || storeyId < 1 || storeyId > _storeys.Length) return false;
 
-            System.Windows.Resources.StreamResourceInfo? sri = null;
-            try
-            {
-                sri = System.Windows.Application.GetResourceStream(new Uri(packUri, UriKind.Absolute));
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[FacetPreview] pack URI probe threw: {ex.Message}");
-            }
-
-            if (sri?.Stream != null)
-            {
-                System.Diagnostics.Debug.WriteLine($"[FacetPreview] FOUND embedded style.tma at {packUri}.");
-                try
-                {
-                    await StyleDataService.Instance.LoadFromResourceStreamAsync(sri.Stream, packUri);
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[FacetPreview] LoadFromResourceStreamAsync failed: {ex.Message}");
-                }
-                return;
-            }
-
-            System.Diagnostics.Debug.WriteLine($"[FacetPreview] NOT found at {packUri}. (No disk fallback by design.)");
+            var ds = _storeys[storeyId - 1];
+            return ResolvePaintedTileId(ds, pos, count, out tileId, out flip);
         }
 
-
-
-        private bool TryGetTmaEntry(int rawStyleId, int slot, out StyleTextureEntry entry)
+        private bool ResolveRawTileId(int rawStyleId, int pos, int count, out int tileId, out byte flip)
         {
-            entry = default;
+            tileId = -1;
+            flip = 0;
 
             var tma = StyleDataService.Instance.TmaSnapshot;
             if (tma == null) return false;
 
-            // Map raw style id to the actual TMA row index:
-            // (your current rule: raw 0 => 1, raw 1 => 1, otherwise raw => raw)
-            int idx = StyleDataService.MapRawStyleIdToTmaIndex(rawStyleId);
-
+            int styleId = rawStyleId <= 0 ? 1 : rawStyleId;
+            int idx = StyleDataService.MapRawStyleIdToTmaIndex(styleId);
             if (idx < 0 || idx >= tma.TextureStyles.Count) return false;
 
-            var style = tma.TextureStyles[idx];
-            var entries = style.Entries;
-            if (entries == null || slot < 0 || slot >= entries.Count) return false;
+            var entries = tma.TextureStyles[idx].Entries;
+            if (entries == null || entries.Count == 0) return false;
 
-            entry = entries[slot];
+            int pieceIndex = pos == 0 ? 0 : (pos == count - 2 ? 1 : 2);
+            if (pieceIndex >= entries.Count) pieceIndex = entries.Count - 1;
+
+            var e = entries[pieceIndex];
+            tileId = e.Page * 64 + e.Ty * 8 + e.Tx;
+            flip = e.Flip;
             return true;
         }
 
-        private static void DecomposeEnginePage(int enginePage, out byte page, out byte tx, out byte ty)
+        private bool ResolvePaintedTileId(BuildingArrays.DStoreyRec ds, int pos, int count, out int tileId, out byte flip)
         {
-            int idx = enginePage & 63;      // 0..63 within “page”
-            page = (byte)(enginePage >> 6);
-            tx = (byte)(idx & 7);
-            ty = (byte)(idx >> 3);
+            tileId = -1;
+            flip = 0;
+            int baseStyle = ds.StyleIndex;
+
+            if (_paintMem == null || _paintMem.Length == 0 || ds.Count == 0)
+                return ResolveRawTileId(baseStyle, pos, count, out tileId, out flip);
+
+            int paintStart = ds.PaintIndex;
+            int paintCount = ds.Count;
+
+            if (paintStart < 0 || paintStart + paintCount > _paintMem.Length || pos >= paintCount)
+                return ResolveRawTileId(baseStyle, pos, count, out tileId, out flip);
+
+            byte raw = _paintMem[paintStart + pos];
+            flip = (byte)(((raw & 0x80) != 0) ? 1 : 0);
+            int val = raw & 0x7F;
+
+            if (val == 0)
+                return ResolveRawTileId(baseStyle, pos, count, out tileId, out flip);
+
+            tileId = val;
+            return true;
         }
 
+        #endregion
+
+        #region Resource Loading
+
+        private bool TryResolveVariantAndWorld(out string? variant, out int world)
+        {
+            variant = null;
+            world = 0;
+
+            try
+            {
+                var shell = Application.Current.MainWindow?.DataContext;
+                if (shell == null) return false;
+
+                var mapProp = shell.GetType().GetProperty("Map");
+                var map = mapProp?.GetValue(shell);
+                if (map == null) return false;
+
+                var mapType = map.GetType();
+                var useBetaProp = mapType.GetProperty("UseBetaTextures");
+                var worldProp = mapType.GetProperty("TextureWorld");
+
+                if (useBetaProp?.GetValue(map) is bool useBeta &&
+                    worldProp?.GetValue(map) is int w && w > 0)
+                {
+                    variant = useBeta ? "Beta" : "Release";
+                    world = w;
+                    return true;
+                }
+                return false;
+            }
+            catch { return false; }
+        }
+
+        private async Task EnsureStylesLoadedAsync()
+        {
+            if (string.IsNullOrWhiteSpace(_variant) || _worldNumber <= 0) return;
+            if (StyleDataService.Instance.IsLoaded) return;
+
+            string packUri = $"pack://application:,,,/Assets/Textures/{_variant}/world{_worldNumber}/style.tma";
+            try
+            {
+                var sri = Application.GetResourceStream(new Uri(packUri, UriKind.Absolute));
+                if (sri?.Stream != null)
+                    await StyleDataService.Instance.LoadFromResourceStreamAsync(sri.Stream, packUri);
+            }
+            catch { }
+        }
 
         private bool TryLoadTileBitmap(byte page, byte tx, byte ty, byte flip, out BitmapSource? bmp)
         {
             bmp = null;
+            if (string.IsNullOrWhiteSpace(_variant) || _worldNumber <= 0) return false;
 
-            if (string.IsNullOrWhiteSpace(_variant) || _worldNumber <= 0)
-            {
-                Debug.WriteLine($"[FacetPreview] TryLoadTileBitmap: Variant/World unresolved — cannot load tile (page={page}, tx={tx}, ty={ty}).");
-                return false;
-            }
-
-            // Decide candidate subfolders from the *page index* as before.
             var candidates = new List<string>(3);
-            if (page <= 3)
-                candidates.Add($"world{_worldNumber}");
-            else if (page <= 7)
-                candidates.Add("shared");
-            else if (page == 8)
-                candidates.Add($"world{_worldNumber}/insides");
-            else
-                candidates.Add($"world{_worldNumber}");   // permissive fallback
+            if (page <= 3) candidates.Add($"world{_worldNumber}");
+            else if (page <= 7) candidates.Add("shared");
+            else if (page == 8) candidates.Add($"world{_worldNumber}/insides");
+            else candidates.Add($"world{_worldNumber}");
 
-            int totalIndex;
-
-            // Sentinel: tx==255 && ty==255 means "page is already the global texNNN index".
-            if (tx == byte.MaxValue && ty == byte.MaxValue)
-            {
-                totalIndex = page;
-            }
-            else
-            {
-                int indexInPage = ty * 8 + tx;
-                totalIndex = page * 64 + indexInPage;
-            }
+            int totalIndex = (tx == 255 && ty == 255) ? page : page * 64 + ty * 8 + tx;
 
             foreach (var subfolder in candidates)
             {
-                foreach (var packUri in EnumerateTilePackUris(_variant!, subfolder!, totalIndex))
+                string packUri = $"pack://application:,,,/Assets/Textures/{_variant}/{subfolder}/tex{totalIndex:D3}hi.png";
+                try
                 {
-                    Debug.WriteLine($"[FacetPreview] Tile pack URI: {packUri}");
-                    try
+                    var sri = Application.GetResourceStream(new Uri(packUri));
+                    if (sri?.Stream == null) continue;
+
+                    var baseBmp = new BitmapImage();
+                    baseBmp.BeginInit();
+                    baseBmp.CacheOption = BitmapCacheOption.OnLoad;
+                    baseBmp.StreamSource = sri.Stream;
+                    baseBmp.EndInit();
+                    baseBmp.Freeze();
+
+                    bool flipX = (flip & 0x01) != 0;
+                    bool flipY = (flip & 0x02) != 0;
+
+                    if (flipX || flipY)
                     {
-                        var sri = Application.GetResourceStream(new Uri(packUri));
-                        if (sri?.Stream == null) continue;
-
-                        var baseBmp = new BitmapImage();
-                        baseBmp.BeginInit();
-                        baseBmp.CacheOption = BitmapCacheOption.OnLoad;
-                        baseBmp.StreamSource = sri.Stream;
-                        baseBmp.EndInit();
-                        baseBmp.Freeze();
-
-                        bool flipX = (flip & 0x01) != 0;
-                        bool flipY = (flip & 0x02) != 0;
-
-                        if (flipX || flipY)
-                        {
-                            var tb = new TransformedBitmap(baseBmp, new ScaleTransform(flipX ? -1 : 1, flipY ? -1 : 1));
-                            tb.Freeze();
-                            bmp = tb;
-                        }
-                        else
-                        {
-                            bmp = baseBmp;
-                        }
-                        return true;
+                        var tb = new TransformedBitmap(baseBmp, new ScaleTransform(flipX ? -1 : 1, flipY ? -1 : 1));
+                        tb.Freeze();
+                        bmp = tb;
                     }
-                    catch (Exception ex)
+                    else
                     {
-                        Debug.WriteLine($"[FacetPreview] Failed to load pack image '{packUri}': {ex.Message}");
+                        bmp = baseBmp;
                     }
+                    return true;
                 }
+                catch { }
             }
-
-            Debug.WriteLine($"[FacetPreview] No embedded tile found for page={page}, tx={tx}, ty={ty} (totalIndex={totalIndex}).");
             return false;
         }
 
-
-        private IEnumerable<string> EnumerateTilePackUris(string variant, string subfolder, int totalIndex)
-        {
-            yield return $"pack://application:,,,/Assets/Textures/{variant}/{subfolder}/tex{totalIndex:D3}hi.png";
-        }
-
+        #endregion
     }
 }

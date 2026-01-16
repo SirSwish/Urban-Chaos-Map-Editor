@@ -1,7 +1,7 @@
-<Window x:Class="UrbanChaosMapEditor.Views.Dialogs.Buildings.FacetPreviewWindow"
+﻿<Window x:Class="UrbanChaosMapEditor.Views.Dialogs.Buildings.FacetPreviewWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Facet Preview" Width="900" Height="600"
+        Title="Facet Editor" Width="960" Height="680"
         Background="#202225"
         WindowStartupLocation="CenterOwner"
         AllowsTransparency="False"
@@ -10,22 +10,17 @@
     <Window.Resources>
         <SolidColorBrush x:Key="Fg" Color="White"/>
         <SolidColorBrush x:Key="Subtle" Color="#FFB0B0B0"/>
+        <SolidColorBrush x:Key="EditableBg" Color="#2A2D32"/>
+        <SolidColorBrush x:Key="EditableBorder" Color="#4A4D52"/>
 
-        <!-- Default text color -->
         <Style TargetType="TextBlock">
             <Setter Property="Foreground" Value="{StaticResource Fg}"/>
         </Style>
 
-        <!-- Make ALL CheckBox captions white -->
         <Style TargetType="CheckBox">
             <Setter Property="Foreground" Value="{StaticResource Fg}"/>
         </Style>
-        
-        <Style x:Key="FlagCheckboxStyle" TargetType="CheckBox">
-            <Setter Property="Foreground" Value="{StaticResource Fg}"/>
-        </Style>
-        
-        <!-- Ensure any inline text inside ContentPresenter uses white -->
+
         <Style TargetType="ContentPresenter">
             <Setter Property="TextElement.Foreground" Value="{StaticResource Fg}"/>
         </Style>
@@ -34,7 +29,37 @@
             <Setter Property="BorderBrush" Value="#333"/>
         </Style>
 
-        <!-- DataGrid dark style + white headers -->
+        <Style x:Key="EditableField" TargetType="TextBox">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background" Value="{StaticResource EditableBg}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource EditableBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="Width" Value="50"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Subtle}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,4,0"/>
+        </Style>
+
+        <Style x:Key="ActionButton" TargetType="Button">
+            <Setter Property="Background" Value="#3A3D42"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="#555"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#4A4D52"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
         <Style TargetType="DataGrid">
             <Setter Property="Foreground" Value="{StaticResource Fg}"/>
             <Setter Property="Background" Value="#282A2E"/>
@@ -49,70 +74,26 @@
             <Setter Property="Background" Value="#2B2D31"/>
             <Setter Property="BorderBrush" Value="#3A3C41"/>
         </Style>
-        <Style TargetType="ComboBox">
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Background" Value="#2F3136"/>
-            <Setter Property="BorderBrush" Value="#555"/>
-        </Style>
-        <Style TargetType="ComboBoxItem">
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Background" Value="#2F3136"/>
-        </Style>
+
         <Style x:Key="WhiteCheckBox" TargetType="CheckBox">
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="CheckBox">
                         <StackPanel Orientation="Horizontal">
-                            <!-- 16x16 box with a custom tick -->
                             <Grid Width="16" Height="16" Margin="0,0,6,0">
-                                <Border x:Name="Bd"
-                                CornerRadius="3"
-                                Background="#26282B"
-                                BorderBrush="#9FA2A8"
-                                BorderThickness="1"/>
-                                <!-- white tick -->
-                                <Path x:Name="Tick"
-                              Data="M 3 8 L 7 12 L 13 4"
-                              Stroke="White"
-                              StrokeThickness="2"
-                              StrokeStartLineCap="Round"
-                              StrokeEndLineCap="Round"
-                              Visibility="Collapsed"/>
-                                <!-- indeterminate dash -->
-                                <Rectangle x:Name="Dash"
-                                   Width="10" Height="2"
-                                   Fill="White"
-                                   RadiusX="1" RadiusY="1"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center"
-                                   Visibility="Collapsed"/>
+                                <Border x:Name="Bd" CornerRadius="3" Background="#26282B" BorderBrush="#9FA2A8" BorderThickness="1"/>
+                                <Path x:Name="Tick" Data="M 3 8 L 7 12 L 13 4" Stroke="White" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Visibility="Collapsed"/>
                             </Grid>
-
-                            <ContentPresenter VerticalAlignment="Center"
-                                      RecognizesAccessKey="True"
-                                      TextElement.Foreground="White"/>
+                            <ContentPresenter VerticalAlignment="Center" RecognizesAccessKey="True" TextElement.Foreground="White"/>
                         </StackPanel>
-
                         <ControlTemplate.Triggers>
-                            <!-- checked = show tick -->
                             <Trigger Property="IsChecked" Value="True">
                                 <Setter TargetName="Tick" Property="Visibility" Value="Visible"/>
                                 <Setter TargetName="Bd" Property="BorderBrush" Value="White"/>
                             </Trigger>
-                            <!-- indeterminate (three-state) = show dash -->
-                            <Trigger Property="IsThreeState" Value="True"/>
-                            <Trigger Property="IsChecked" Value="{x:Null}">
-                                <Setter TargetName="Dash" Property="Visibility" Value="Visible"/>
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="White"/>
-                            </Trigger>
-                            <!-- disabled -->
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.6"/>
-                            </Trigger>
-                            <!-- keyboard focus highlight (optional) -->
-                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="#FFFFFF"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -123,15 +104,12 @@
 
     <Grid Margin="12">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="340"/>
+            <ColumnDefinition Width="380"/>
             <ColumnDefinition Width="12"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="*"/>
-        </Grid.RowDefinitions>
 
-        <!-- LEFT: Info panel -->
+        <!-- LEFT: Info/Edit panel -->
         <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto">
             <StackPanel>
 
@@ -140,19 +118,101 @@
                     <StackPanel>
                         <TextBlock Text="Facet" FontWeight="Bold" FontSize="14"/>
                         <TextBlock x:Name="FacetIdText" Margin="0,6,0,0"/>
-                        <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
-                            <TextBlock Text="Type:" Margin="0,0,6,0"/>
-                            <ComboBox x:Name="FacetTypeCombo"
-                                      Width="180"
-                                      SelectionChanged="FacetTypeCombo_OnSelectionChanged"/>
+
+                        <!-- Type display (READ-ONLY) -->
+                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                            <TextBlock Text="Type:" Style="{StaticResource FieldLabel}" Width="80"/>
+                            <TextBlock x:Name="FacetTypeText" FontWeight="SemiBold"/>
                         </StackPanel>
-                        <TextBlock x:Name="FacetCoordsText"/>
-                        <TextBlock x:Name="FacetHeightText"/>
-                        <!-- Keep the hex for debugging -->
+                        <TextBlock Text="(To change type, add a new facet)"
+                                   Foreground="{StaticResource Subtle}"
+                                   FontSize="10" FontStyle="Italic" Margin="80,2,0,0"/>
+
+                        <!-- COORDINATES SECTION -->
+                        <TextBlock Text="Coordinates" FontWeight="SemiBold" Margin="0,12,0,6"/>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                            <TextBlock Text="Start:" Style="{StaticResource FieldLabel}" Width="80"/>
+                            <TextBlock Text="X0:" Style="{StaticResource FieldLabel}"/>
+                            <TextBox x:Name="TxtX0" Style="{StaticResource EditableField}" 
+                                     LostFocus="Coord_LostFocus" PreviewTextInput="NumericOnly_PreviewTextInput"/>
+                            <TextBlock Text="Z0:" Style="{StaticResource FieldLabel}" Margin="12,0,4,0"/>
+                            <TextBox x:Name="TxtZ0" Style="{StaticResource EditableField}"
+                                     LostFocus="Coord_LostFocus" PreviewTextInput="NumericOnly_PreviewTextInput"/>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                            <TextBlock Text="End:" Style="{StaticResource FieldLabel}" Width="80"/>
+                            <TextBlock Text="X1:" Style="{StaticResource FieldLabel}"/>
+                            <TextBox x:Name="TxtX1" Style="{StaticResource EditableField}"
+                                     LostFocus="Coord_LostFocus" PreviewTextInput="NumericOnly_PreviewTextInput"/>
+                            <TextBlock Text="Z1:" Style="{StaticResource FieldLabel}" Margin="12,0,4,0"/>
+                            <TextBox x:Name="TxtZ1" Style="{StaticResource EditableField}"
+                                     LostFocus="Coord_LostFocus" PreviewTextInput="NumericOnly_PreviewTextInput"/>
+                        </StackPanel>
+
+                        <!-- Action buttons -->
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                            <Button x:Name="BtnRedraw" 
+                                    Content="📍 Redraw on Map" 
+                                    Style="{StaticResource ActionButton}"
+                                    Click="BtnRedraw_Click"
+                                    ToolTip="Click to draw new endpoints on the map. First click = start (X0,Z0), second click = end (X1,Z1). Right-click to cancel."/>
+                            <Button x:Name="BtnDeleteFacet" 
+                                    Content="🗑️ Delete Facet" 
+                                    Margin="8,0,0,0"
+                                    Background="#5C2020"
+                                    Foreground="White"
+                                    BorderBrush="#802020"
+                                    BorderThickness="1"
+                                    Padding="12,6"
+                                    Cursor="Hand"
+                                    Click="BtnDeleteFacet_Click"
+                                    ToolTip="Delete this facet from the building.">
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Style.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter Property="Background" Value="#7C3030"/>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                        </StackPanel>
+
+                        <!-- HEIGHTS SECTION -->
+                        <TextBlock Text="Heights" FontWeight="SemiBold" Margin="0,12,0,6"/>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                            <TextBlock Text="Coarse:" Style="{StaticResource FieldLabel}" Width="80"/>
+                            <TextBox x:Name="TxtHeight" Style="{StaticResource EditableField}"
+                                     LostFocus="Height_LostFocus" PreviewTextInput="NumericOnly_PreviewTextInput"/>
+                            <TextBlock Text="Fine:" Style="{StaticResource FieldLabel}" Margin="12,0,4,0"/>
+                            <TextBox x:Name="TxtFHeight" Style="{StaticResource EditableField}"
+                                     LostFocus="Height_LostFocus" PreviewTextInput="NumericOnly_PreviewTextInput"/>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                            <TextBlock Text="Y0:" Style="{StaticResource FieldLabel}" Width="80"/>
+                            <TextBox x:Name="TxtY0" Style="{StaticResource EditableField}" Width="70"
+                                     LostFocus="Height_LostFocus" PreviewTextInput="SignedNumericOnly_PreviewTextInput"/>
+                            <TextBlock Text="Y1:" Style="{StaticResource FieldLabel}" Margin="12,0,4,0"/>
+                            <TextBox x:Name="TxtY1" Style="{StaticResource EditableField}" Width="70"
+                                     LostFocus="Height_LostFocus" PreviewTextInput="SignedNumericOnly_PreviewTextInput"/>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                            <TextBlock Text="BlockHeight:" Style="{StaticResource FieldLabel}" Width="80"/>
+                            <TextBox x:Name="TxtBlockHeight" Style="{StaticResource EditableField}"
+                                     LostFocus="Height_LostFocus" PreviewTextInput="NumericOnly_PreviewTextInput"/>
+                        </StackPanel>
+
+                        <TextBlock x:Name="FacetCoordsText" Margin="0,8,0,0" Foreground="{StaticResource Subtle}" FontSize="11"/>
+                        <TextBlock x:Name="FacetHeightText" Foreground="{StaticResource Subtle}" FontSize="11"/>
                         <TextBlock x:Name="FacetFlagsText" Margin="0,6,0,2"/>
 
-                        <!-- NEW: Flags as read-only checkboxes -->
-                        <!-- NEW: Flags (editable) -->
+                        <!-- Flags -->
                         <TextBlock Text="Flags:" FontWeight="SemiBold" Margin="0,6,0,2"/>
                         <ItemsControl x:Name="FlagsList">
                             <ItemsControl.ItemsPanel>
@@ -162,33 +222,27 @@
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <CheckBox
-                                        Style="{StaticResource WhiteCheckBox}"
+                                    <CheckBox Style="{StaticResource WhiteCheckBox}"
                                         Content="{Binding Name}"
                                         IsChecked="{Binding IsSet, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                        Tag="{Binding Bit}"
-                                        Margin="0,2,12,2"/>
+                                        Tag="{Binding Bit}" Margin="0,2,12,2"/>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </StackPanel>
                 </Border>
 
-                <!-- Style section (RAW vs PAINTED) -->
+                <!-- Style section -->
                 <Border BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,10">
                     <StackPanel>
                         <TextBlock Text="Style" FontWeight="Bold" FontSize="14"/>
                         <TextBlock x:Name="StyleModeText" Margin="0,6,0,0"/>
-
-                        <!-- NEW: recipe line used by code-behind (fixes missing name error) -->
                         <TextBlock x:Name="RecipeText" Margin="0,4,0,0" Foreground="{StaticResource Subtle}"/>
 
-                        <!-- RAW -->
                         <StackPanel x:Name="RawStylePanel" Margin="0,6,0,0">
                             <TextBlock x:Name="RawStyleText"/>
                         </StackPanel>
 
-                        <!-- PAINTED -->
                         <StackPanel x:Name="PaintedPanel" Margin="0,6,0,0" Visibility="Collapsed">
                             <TextBlock x:Name="PaintedSummaryText"/>
                             <TextBlock Text="Paint bytes (raw):" Margin="0,6,0,2" FontWeight="SemiBold"/>
@@ -197,54 +251,30 @@
                             </ScrollViewer>
 
                             <TextBlock Text="Decoded per-byte:" Margin="0,10,0,4" FontWeight="SemiBold"/>
-                            <DataGrid x:Name="PaintBytesGrid"
-                                      AutoGenerateColumns="False"
-                                      CanUserAddRows="False"
-                                      IsReadOnly="True"
-                                      HeadersVisibility="Column"
-                                      Height="160">
+                            <DataGrid x:Name="PaintBytesGrid" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" HeadersVisibility="Column" Height="160">
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Binding="{Binding Index}" Header="#" Width="40"/>
                                     <DataGridTextColumn Binding="{Binding ByteHex}" Header="Byte" Width="70"/>
-
-                                    <DataGridTextColumn Binding="{Binding Page}" Width="120">
-                                        <DataGridTextColumn.Header>
-                                            <TextBlock Text="Page (b&amp;0x7F)"/>
-                                        </DataGridTextColumn.Header>
-                                    </DataGridTextColumn>
-
-                                    <DataGridTextColumn Binding="{Binding Flag}" Width="120">
-                                        <DataGridTextColumn.Header>
-                                            <TextBlock Text="Flag (b&amp;0x80)"/>
-                                        </DataGridTextColumn.Header>
-                                    </DataGridTextColumn>
+                                    <DataGridTextColumn Binding="{Binding Page}" Header="Page" Width="100"/>
+                                    <DataGridTextColumn Binding="{Binding Flag}" Header="Flag" Width="100"/>
                                 </DataGrid.Columns>
                             </DataGrid>
                         </StackPanel>
                     </StackPanel>
                 </Border>
 
-                <TextBlock Text="(Scroll the preview if it's larger than the window.)"
-                           Foreground="{StaticResource Subtle}"/>
+                <TextBlock Text="Tip: Use 'Redraw on Map' to interactively reposition the facet. First click = start, second click = end. Right-click cancels."
+                           Foreground="{StaticResource Subtle}" TextWrapping="Wrap" FontSize="11"/>
             </StackPanel>
         </ScrollViewer>
 
-        <!-- Spacer -->
         <Grid Grid.Column="1"/>
 
-        <!-- RIGHT: Visual preview (exact pixels) -->
+        <!-- RIGHT: Visual preview -->
         <Border Grid.Column="2" BorderThickness="1" CornerRadius="6" Padding="8">
-            <ScrollViewer x:Name="PreviewScroll"
-                          HorizontalScrollBarVisibility="Auto"
-                          VerticalScrollBarVisibility="Auto"
-                          Background="#1E1F22">
+            <ScrollViewer x:Name="PreviewScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" Background="#1E1F22">
                 <Grid>
-                    <!-- Panel canvas -->
-                    <Canvas x:Name="PanelCanvas"
-                            Background="#202225"
-                            SnapsToDevicePixels="True"
-                            ClipToBounds="True"/>
-                    <!-- 64x64 grid -->
+                    <Canvas x:Name="PanelCanvas" Background="#202225" SnapsToDevicePixels="True" ClipToBounds="True"/>
                     <Canvas x:Name="GridCanvas" IsHitTestVisible="False"/>
                 </Grid>
             </ScrollViewer>

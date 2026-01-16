@@ -142,6 +142,7 @@ namespace UrbanChaosMapEditor.ViewModels
                 RefreshSelectedBuildingFacetGroups();
             }
         }
+        public bool HasSelectedFacet => SelectedFacet != null;
 
         // Convenience: is *any* facet filter active?
         private bool AnyFacetFilterActive =>
@@ -158,12 +159,28 @@ namespace UrbanChaosMapEditor.ViewModels
                 if (_selectedFacet == value) return;
                 _selectedFacet = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(HasSelectedFacet)); // ADD THIS LINE
 
                 if (value != null)
                 {
                     // Keep building / storey selection in sync with the facet for UI purposes
                     SelectedBuildingId = value.BuildingId;
                     SelectedStoreyId = value.StoreyId;
+                }
+            }
+        }
+
+        private FacetTypeGroupVM? _selectedFacetTypeGroup;
+        /// <summary>The currently selected facet type group in the Types list (middle column).</summary>
+        public FacetTypeGroupVM? SelectedFacetTypeGroup
+        {
+            get => _selectedFacetTypeGroup;
+            set
+            {
+                if (_selectedFacetTypeGroup != value)
+                {
+                    _selectedFacetTypeGroup = value;
+                    OnPropertyChanged();
                 }
             }
         }
@@ -221,6 +238,10 @@ namespace UrbanChaosMapEditor.ViewModels
                 _selectedBuilding = value;
                 _selectedBuildingId = value?.Id ?? 0;
 
+                // Clear facet type selection when building changes
+                SelectedFacetTypeGroup = null;
+                SelectedFacet = null;
+
                 UpdateSelectedBuildingRec();
                 DumpSelectedBuildingRawBytesToDebug();
 
@@ -244,12 +265,7 @@ namespace UrbanChaosMapEditor.ViewModels
                 }
 
                 RefreshSelectedBuildingFacetGroups();
-
-                // Whole-building highlight when building changes
-                RefreshSelectedBuildingFacetGroups();
                 RefreshSelectedBuildingWalkables();
-                SyncBuildingSelectionIntoMap();
-
                 SyncBuildingSelectionIntoMap();
                 RebuildSelectedBuildingWalkables();
             }
@@ -583,22 +599,40 @@ namespace UrbanChaosMapEditor.ViewModels
 
             Debug.WriteLine($"[BuildingsTabVM] nonCable={nonCable.Length} cables={cables.Count}");
 
-            // Build building VMs from non-cable facets
-            var buildingIds = nonCable
+            // Get ALL building IDs from the DBuildingRec array (1-based)
+            // This includes buildings with no facets
+            var allBuildingIds = new HashSet<int>();
+            for (int i = 0; i < arrays.Buildings.Length; i++)
+            {
+                allBuildingIds.Add(i + 1); // 1-based ID
+            }
+
+            // Also get building IDs from facets (in case any facets reference buildings not in the array)
+            var facetBuildingIds = nonCable
                 .Select(t => (int)t.Facet.Building)
                 .Where(id => id > 0)
-                .Distinct()
-                .OrderBy(id => id)
-                .ToList();
+                .Distinct();
 
-            Debug.WriteLine($"[BuildingsTabVM] distinct building ids (no cables)={buildingIds.Count} :: {string.Join(",", buildingIds.Take(16))}{(buildingIds.Count > 16 ? ",..." : "")}");
+            foreach (var id in facetBuildingIds)
+                allBuildingIds.Add(id);
+
+            var buildingIds = allBuildingIds.OrderBy(id => id).ToList();
+
+            Debug.WriteLine($"[BuildingsTabVM] all building ids={buildingIds.Count} :: {string.Join(",", buildingIds.Take(16))}{(buildingIds.Count > 16 ? ",..." : "")}");
 
             foreach (int bId in buildingIds)
             {
                 var bFacets = nonCable.Where(t => t.Facet.Building == bId).ToList();
-                if (bFacets.Count == 0) continue;
+                // NOTE: Don't skip if bFacets.Count == 0 - we want to show empty buildings!
 
                 var bvm = new BuildingVM { Id = bId };
+
+                // Get building type from DBuildingRec if available
+                if (bId > 0 && bId <= arrays.Buildings.Length)
+                {
+                    var bRec = arrays.Buildings[bId - 1];
+                    bvm.BuildingType = (BuildingType)bRec.Type;
+                }
 
                 foreach (var storeyGroup in bFacets.GroupBy(t => t.Facet.Storey).OrderBy(g => g.Key))
                 {
@@ -640,7 +674,7 @@ namespace UrbanChaosMapEditor.ViewModels
                                 Y1 = f.Y1,
                                 BlockHeight = f.BlockHeight,
                                 Open = f.Open,
-                                IsPainted = isPainted   // <-- key line
+                                IsPainted = isPainted
                             });
                         }
 
@@ -656,8 +690,8 @@ namespace UrbanChaosMapEditor.ViewModels
                 }
 
                 bvm.FacetCount = bvm.Storeys.SelectMany(st => st.Groups).Sum(g => g.Count);
-                if (bvm.FacetCount > 0)
-                    _allBuildings.Add(bvm);
+                // CHANGED: Always add the building, even if empty
+                _allBuildings.Add(bvm);
             }
 
             // Populate flat cables list
@@ -1006,9 +1040,16 @@ namespace UrbanChaosMapEditor.ViewModels
         /// Also auto-selects a facet for the details pane if none is selected,
         /// but keeps the map in whole-building/storey mode.
         /// </summary>
+
+        /// <summary>
+        /// Populates SelectedBuildingFacetGroups based on SelectedBuilding,
+        /// combining facets from ALL storeys into type groups,
+        /// then applies the Walls/Fences/Doors/Ladders filters.
+        /// </summary>
         private void RefreshSelectedBuildingFacetGroups()
         {
             SelectedBuildingFacetGroups.Clear();
+            SelectedFacetTypeGroup = null;
 
             var b = SelectedBuilding;
             if (b == null)
@@ -1017,45 +1058,45 @@ namespace UrbanChaosMapEditor.ViewModels
             if (b.Storeys.Count == 0)
                 return;
 
-            // Which storey do we want?
-            int storeyId = SelectedStoreyId;
-            var storey = b.Storeys.FirstOrDefault(s => s.StoreyId == storeyId);
+            // Collect ALL facets from ALL storeys, grouped by type
+            var allFacetsByType = b.Storeys
+                .SelectMany(s => s.Groups)
+                .SelectMany(g => g.Facets.Select(f => (Type: g.Type, TypeName: g.TypeName, Facet: f)))
+                .GroupBy(x => x.Type)
+                .OrderBy(g => g.Key.ToString());
 
-            if (storey == null)
+            foreach (var typeGroup in allFacetsByType)
             {
-                // Fallback: first storey on this building
-                storey = b.Storeys.OrderBy(s => s.StoreyId).First();
-                if (storey.StoreyId != SelectedStoreyId)
+                // Apply facet-type filters (Walls / Fences / Doors / Ladders)
+                if (AnyFacetFilterActive && !IsFacetTypeAllowedByFilter(typeGroup.Key))
+                    continue;
+
+                var gvm = new FacetTypeGroupVM
                 {
-                    _selectedStoreyId = storey.StoreyId;
-                    OnPropertyChanged(nameof(SelectedStoreyId));
+                    Type = typeGroup.Key,
+                    TypeName = FacetTypeName(typeGroup.Key),
+                    Facets = new ObservableCollection<FacetVM>(
+                        typeGroup.Select(x => x.Facet).OrderBy(f => f.FacetId1))
+                };
+                gvm.Count = gvm.Facets.Count;
+
+                if (gvm.Count > 0)
+                    SelectedBuildingFacetGroups.Add(gvm);
+            }
+
+            // Auto-select first type group if available
+            if (SelectedBuildingFacetGroups.Count > 0)
+            {
+                SelectedFacetTypeGroup = SelectedBuildingFacetGroups[0];
+
+                // Auto-select first facet in that group
+                if (SelectedFacetTypeGroup.Facets.Count > 0)
+                {
+                    SelectedFacet = SelectedFacetTypeGroup.Facets[0];
                 }
             }
 
-            // Apply facet-type filters (Walls / Fences / Doors / Ladders)
-            var groups = storey.Groups.AsEnumerable();
-            if (AnyFacetFilterActive)
-            {
-                groups = groups.Where(g => IsFacetTypeAllowedByFilter(g.Type));
-            }
-
-            // Push filtered groups into the observable collection
-            foreach (var g in groups)
-                SelectedBuildingFacetGroups.Add(g);
-
-            // Auto-pick a facet for the details pane, but don't force the map into single-facet mode
-            var allVisibleFacets = SelectedBuildingFacetGroups.SelectMany(g => g.Facets).ToList();
-
-            if (SelectedFacet == null || !allVisibleFacets.Contains(SelectedFacet))
-            {
-                var firstFacet = allVisibleFacets.FirstOrDefault();
-                if (firstFacet != null)
-                {
-                    SelectedFacet = firstFacet;   // setter updates SelectedBuildingId/SelectedStoreyId only
-                }
-            }
-
-            // Still whole-building/storey highlight (all visible facets) – facet id null
+            // Still whole-building highlight (all visible facets) – facet id null
             SyncBuildingSelectionIntoMap();
         }
 
@@ -1379,16 +1420,20 @@ namespace UrbanChaosMapEditor.ViewModels
         public sealed class BuildingVM
         {
             public int Id { get; set; }
+            public BuildingType BuildingType { get; set; } = BuildingType.House;
             public int FacetCount { get; set; }
-            public bool IsPhantom { get; set; }      // existing optional flag
-            public bool IsCablesBucket { get; set; } // not really used here but kept
+            public bool IsPhantom { get; set; }
+            public bool IsCablesBucket { get; set; }
 
             public string DisplayName =>
                 IsCablesBucket ? "Cables"
                 : (IsPhantom ? $"B#{Id} (phantom)" : $"B#{Id}");
 
+            /// <summary>Short display name for compact list (e.g., "B#1")</summary>
+            public string ShortDisplayName => IsCablesBucket ? "Cables" : $"B#{Id}";
+
             public ObservableCollection<StoreyVM> Storeys { get; } = new();
-            // NEW: only show storeys in the UI when there is more than one
+
             public IEnumerable<StoreyVM> VisibleStoreys =>
                 Storeys.Count > 1 ? Storeys : Array.Empty<StoreyVM>();
         }
@@ -1410,7 +1455,9 @@ namespace UrbanChaosMapEditor.ViewModels
             public FacetType Type { get; set; }
             public string TypeName { get; set; } = "";
             public int Count { get; set; }
-            public List<FacetVM> Facets { get; set; } = new();
+
+            // CHANGED: List<FacetVM> to ObservableCollection<FacetVM> for binding
+            public ObservableCollection<FacetVM> Facets { get; set; } = new();
 
             public FacetTypeGroupVM() { }
             public FacetTypeGroupVM(FacetType type)

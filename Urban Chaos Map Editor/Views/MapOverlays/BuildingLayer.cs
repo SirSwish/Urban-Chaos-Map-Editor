@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Windows;
 using System.Windows.Media;
 using UrbanChaosMapEditor.Models;
+using UrbanChaosMapEditor.Services;
 using UrbanChaosMapEditor.Services.DataServices;
 using UrbanChaosMapEditor.ViewModels;
 
@@ -93,6 +94,13 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
             svc.MapLoaded += (_, __) => { SeedFromService(); Dispatcher.Invoke(InvalidateVisual); };
             svc.MapBytesReset += (_, __) => { SeedFromService(); Dispatcher.Invoke(InvalidateVisual); };
             svc.MapCleared += (_, __) => { ClearCache(); Dispatcher.Invoke(InvalidateVisual); };
+
+            // NEW: Subscribe to BuildingsChangeBus for facet edits
+            BuildingsChangeBus.Instance.Changed += (_, __) =>
+            {
+                SeedFromService();
+                Dispatcher.Invoke(InvalidateVisual);
+            };
 
             DataContextChanged += (_, __) => HookVm();
         }

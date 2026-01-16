@@ -722,7 +722,15 @@ namespace UrbanChaosMapEditor.Services
         {
             if (!TryGetFacetOffset(facetId1, out int facet0)) return false;
             int flagsOff = facet0 + 10; // U16 at +10
-            return _svc.TryWriteU16_LE(flagsOff, (ushort)flags);
+            bool success = _svc.TryWriteU16_LE(flagsOff, (ushort)flags);
+
+            if (success)
+            {
+                BuildingsChangeBus.Instance.NotifyFacetChanged(facetId1);
+                BuildingsChangeBus.Instance.NotifyChanged();
+            }
+
+            return success;
         }
 
         public bool TryUpdateFacetType(int facetId1, FacetType newType)
@@ -735,10 +743,189 @@ namespace UrbanChaosMapEditor.Services
                 if (facet0 >= 0 && facet0 < bytes.Length)
                     bytes[facet0 + 0] = (byte)newType; // first byte is type
             });
+
+            BuildingsChangeBus.Instance.NotifyFacetChanged(facetId1);
+            BuildingsChangeBus.Instance.NotifyChanged();
+
+            return true;
+        }
+
+        /// <summary>
+        /// Updates the X0, Z0, X1, Z1 coordinates of a facet.
+        /// Offsets in DFacetRec: X0=+2, X1=+3, Z0=+8, Z1=+9 (all bytes)
+        /// </summary>
+        public bool TryUpdateFacetCoords(int facetId1, byte x0, byte z0, byte x1, byte z1)
+        {
+            if (!_svc.IsLoaded) return false;
+            if (!TryGetFacetOffset(facetId1, out int facet0)) return false;
+
+            // Validate range
+            if (x0 > 127 || z0 > 127 || x1 > 127 || z1 > 127)
+            {
+                Debug.WriteLine($"[BuildingsAccessor] TryUpdateFacetCoords: coords out of range (0-127)");
+                return false;
+            }
+
+            _svc.Edit(bytes =>
+            {
+                if (facet0 >= 0 && facet0 + DFacetSize <= bytes.Length)
+                {
+                    bytes[facet0 + 2] = x0;  // X0
+                    bytes[facet0 + 3] = x1;  // X1
+                    bytes[facet0 + 8] = z0;  // Z0
+                    bytes[facet0 + 9] = z1;  // Z1
+                }
+            });
+
+            Debug.WriteLine($"[BuildingsAccessor] Updated facet #{facetId1} coords: ({x0},{z0})->({x1},{z1})");
+
+            // Notify change bus
+            BuildingsChangeBus.Instance.NotifyFacetChanged(facetId1);
+            BuildingsChangeBus.Instance.NotifyChanged();
+
+            return true;
+        }
+
+        /// <summary>
+        /// Updates the height-related fields of a facet.
+        /// Offsets in DFacetRec:
+        ///   Height (coarse) = +1 (byte)
+        ///   Y0 = +4 (short, little-endian)
+        ///   Y1 = +6 (short, little-endian)
+        ///   FHeight (fine) = +18 (byte)
+        ///   BlockHeight = +19 (byte)
+        /// </summary>
+        public bool TryUpdateFacetHeights(int facetId1, byte height, byte fheight, short y0, short y1, byte blockHeight)
+        {
+            if (!_svc.IsLoaded) return false;
+            if (!TryGetFacetOffset(facetId1, out int facet0)) return false;
+
+            _svc.Edit(bytes =>
+            {
+                if (facet0 >= 0 && facet0 + DFacetSize <= bytes.Length)
+                {
+                    // Height (coarse) at +1
+                    bytes[facet0 + 1] = height;
+
+                    // Y0 at +4 (short, little-endian)
+                    bytes[facet0 + 4] = (byte)(y0 & 0xFF);
+                    bytes[facet0 + 5] = (byte)((y0 >> 8) & 0xFF);
+
+                    // Y1 at +6 (short, little-endian)
+                    bytes[facet0 + 6] = (byte)(y1 & 0xFF);
+                    bytes[facet0 + 7] = (byte)((y1 >> 8) & 0xFF);
+
+                    // FHeight (fine) at +18
+                    bytes[facet0 + 18] = fheight;
+
+                    // BlockHeight at +19
+                    bytes[facet0 + 19] = blockHeight;
+                }
+            });
+
+            Debug.WriteLine($"[BuildingsAccessor] Updated facet #{facetId1} heights: H={height} FH={fheight} Y0={y0} Y1={y1} BH={blockHeight}");
+
+            // Notify change bus
+            BuildingsChangeBus.Instance.NotifyFacetChanged(facetId1);
+            BuildingsChangeBus.Instance.NotifyChanged();
+
+            return true;
+        }
+
+        /// <summary>
+        /// Updates the StyleIndex of a facet.
+        /// Offset in DFacetRec: StyleIndex = +12 (ushort, little-endian)
+        /// </summary>
+        public bool TryUpdateFacetStyleIndex(int facetId1, ushort styleIndex)
+        {
+            if (!_svc.IsLoaded) return false;
+            if (!TryGetFacetOffset(facetId1, out int facet0)) return false;
+
+            _svc.Edit(bytes =>
+            {
+                if (facet0 >= 0 && facet0 + DFacetSize <= bytes.Length)
+                {
+                    bytes[facet0 + 12] = (byte)(styleIndex & 0xFF);
+                    bytes[facet0 + 13] = (byte)((styleIndex >> 8) & 0xFF);
+                }
+            });
+
+            Debug.WriteLine($"[BuildingsAccessor] Updated facet #{facetId1} StyleIndex: {styleIndex}");
+
+            BuildingsChangeBus.Instance.NotifyFacetChanged(facetId1);
+            BuildingsChangeBus.Instance.NotifyChanged();
+
             return true;
         }
 
         // ---------- Helpers ----------
+
+        /// <summary>
+        /// Updates the Building field of a facet.
+        /// Offset in DFacetRec: Building = +14 (ushort, little-endian)
+        /// Note: For Cable facets, this field is repurposed as step_angle2.
+        /// </summary>
+        public bool TryUpdateFacetBuilding(int facetId1, ushort buildingId)
+        {
+            if (!_svc.IsLoaded) return false;
+            if (!TryGetFacetOffset(facetId1, out int facet0)) return false;
+
+            _svc.Edit(bytes =>
+            {
+                if (facet0 >= 0 && facet0 + DFacetSize <= bytes.Length)
+                {
+                    bytes[facet0 + 14] = (byte)(buildingId & 0xFF);
+                    bytes[facet0 + 15] = (byte)((buildingId >> 8) & 0xFF);
+                }
+            });
+
+            Debug.WriteLine($"[BuildingsAccessor] Updated facet #{facetId1} Building: {buildingId}");
+            return true;
+        }
+
+        /// <summary>
+        /// Updates the Storey field of a facet.
+        /// Offset in DFacetRec: Storey = +16 (ushort, little-endian)
+        /// </summary>
+        public bool TryUpdateFacetStorey(int facetId1, ushort storey)
+        {
+            if (!_svc.IsLoaded) return false;
+            if (!TryGetFacetOffset(facetId1, out int facet0)) return false;
+
+            _svc.Edit(bytes =>
+            {
+                if (facet0 >= 0 && facet0 + DFacetSize <= bytes.Length)
+                {
+                    bytes[facet0 + 16] = (byte)(storey & 0xFF);
+                    bytes[facet0 + 17] = (byte)((storey >> 8) & 0xFF);
+                }
+            });
+
+            Debug.WriteLine($"[BuildingsAccessor] Updated facet #{facetId1} Storey: {storey}");
+            return true;
+        }
+
+        /// <summary>
+        /// Updates the Open field of a facet (used for doors).
+        /// Offset in DFacetRec: Open = +20 (byte)
+        /// </summary>
+        public bool TryUpdateFacetOpen(int facetId1, byte open)
+        {
+            if (!_svc.IsLoaded) return false;
+            if (!TryGetFacetOffset(facetId1, out int facet0)) return false;
+
+            _svc.Edit(bytes =>
+            {
+                if (facet0 >= 0 && facet0 + DFacetSize <= bytes.Length)
+                {
+                    bytes[facet0 + 20] = open;
+                }
+            });
+
+            Debug.WriteLine($"[BuildingsAccessor] Updated facet #{facetId1} Open: {open}");
+            return true;
+        }
+
         public static int DecodePaintPage(byte b) => b & 0x7F;          // lower 7 bits
         public static bool DecodePaintFlag(byte b) => (b & 0x80) != 0;   // high bit
 

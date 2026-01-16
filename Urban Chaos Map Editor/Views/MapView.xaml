@@ -86,6 +86,13 @@
                         Width="8192" Height="8192"
                         Panel.ZIndex="99"
                         IsHitTestVisible="False"/>
+
+                    <ovl:FacetRedrawPreviewLayer
+                        x:Name="FacetRedrawLayer"
+                        Width="8192" Height="8192"
+                        Panel.ZIndex="100"
+                        DataContext="{Binding}"
+                        IsHitTestVisible="False"/>
                 </Grid>
             </Grid>
         </ScrollViewer>

@@ -9,6 +9,7 @@ using System.Windows.Input;
 using System.Windows.Media.Imaging;
 using UrbanChaosMapEditor.Models;
 using UrbanChaosMapEditor.Services;
+using UrbanChaosMapEditor.Views.Dialogs.Buildings;
 using static UrbanChaosMapEditor.Models.PrimCatalog;
 using static UrbanChaosMapEditor.Services.TexturesAccessor;
 using UrbanChaosMapEditor.Services.DataServices;
@@ -139,6 +140,93 @@ namespace UrbanChaosMapEditor.ViewModels
 
         private bool _showMapWho = false;
         public bool ShowMapWho { get => _showMapWho; set { if (_showMapWho != value) { _showMapWho = value; OnPropertyChanged(); } } }
+
+        // Facet redraw mode state
+        private bool _isRedrawingFacet;
+        private FacetPreviewWindow? _facetRedrawWindow;
+        private int _facetRedrawId1;
+        private (byte x, byte z)? _facetRedrawFirstPoint;
+        private (int uiX0, int uiZ0, int uiX1, int uiZ1)? _facetRedrawPreviewLine;
+
+        // Facet multi-draw mode state
+        private bool _isMultiDrawingFacets;
+        private AddFacetWindow? _addFacetWindow;
+        private FacetTemplate? _facetTemplate;
+        private int _facetsAddedCount;
+        private (byte x, byte z)? _multiDrawFirstPoint;
+        private (int uiX0, int uiZ0, int uiX1, int uiZ1)? _multiDrawPreviewLine;
+
+        // Door placement mode state
+        private bool _isPlacingDoor;
+        private AddDoorWindow? _addDoorWindow;
+        private DoorTemplate? _doorTemplate;
+        private (byte x, byte z)? _doorFirstPoint;
+        private (int uiX0, int uiZ0, int uiX1, int uiZ1)? _doorPreviewLine;
+
+        /// <summary>True when user is in door placement mode.</summary>
+        public bool IsPlacingDoor
+        {
+            get => _isPlacingDoor;
+            set { if (_isPlacingDoor != value) { _isPlacingDoor = value; OnPropertyChanged(); } }
+        }
+
+        /// <summary>Preview line for door placement.</summary>
+        public (int uiX0, int uiZ0, int uiX1, int uiZ1)? DoorPreviewLine
+        {
+            get => _doorPreviewLine;
+            set { if (_doorPreviewLine != value) { _doorPreviewLine = value; OnPropertyChanged(); } }
+        }
+
+        // Ladder placement mode state
+        private bool _isPlacingLadder;
+        private AddLadderWindow? _addLadderWindow;
+        private LadderTemplate? _ladderTemplate;
+        private (byte x, byte z)? _ladderFirstPoint;
+        private (int uiX0, int uiZ0, int uiX1, int uiZ1)? _ladderPreviewLine;
+
+        /// <summary>True when user is in ladder placement mode.</summary>
+        /// <summary>True when user is in ladder placement mode.</summary>
+        public bool IsPlacingLadder
+        {
+            get => _isPlacingLadder;
+            set { if (_isPlacingLadder != value) { _isPlacingLadder = value; OnPropertyChanged(); } }
+        }
+
+        /// <summary>Preview line for ladder placement (same as facet redraw).</summary>
+        public (int uiX0, int uiZ0, int uiX1, int uiZ1)? LadderPreviewLine
+        {
+            get => _ladderPreviewLine;
+            set { if (_ladderPreviewLine != value) { _ladderPreviewLine = value; OnPropertyChanged(); } }
+        }
+
+
+        /// <summary>True when user is in facet redraw mode.</summary>
+        public bool IsRedrawingFacet
+        {
+            get => _isRedrawingFacet;
+            set { if (_isRedrawingFacet != value) { _isRedrawingFacet = value; OnPropertyChanged(); } }
+        }
+
+        /// <summary>True when user is in facet multi-draw mode (adding new facets).</summary>
+        public bool IsMultiDrawingFacets
+        {
+            get => _isMultiDrawingFacets;
+            set { if (_isMultiDrawingFacets != value) { _isMultiDrawingFacets = value; OnPropertyChanged(); } }
+        }
+
+        /// <summary>Preview line for multi-draw mode (same rendering as single redraw).</summary>
+        public (int uiX0, int uiZ0, int uiX1, int uiZ1)? MultiDrawPreviewLine
+        {
+            get => _multiDrawPreviewLine;
+            set { if (_multiDrawPreviewLine != value) { _multiDrawPreviewLine = value; OnPropertyChanged(); } }
+        }
+
+
+        public (int uiX0, int uiZ0, int uiX1, int uiZ1)? FacetRedrawPreviewLine
+        {
+            get => _facetRedrawPreviewLine;
+            set { if (_facetRedrawPreviewLine != value) { _facetRedrawPreviewLine = value; OnPropertyChanged(); } }
+        }
 
         // ===== Cursor (pixels + tiles) =====
         private int _cursorX;
@@ -534,6 +622,199 @@ namespace UrbanChaosMapEditor.ViewModels
             }
         }
 
+        /// <summary>
+        /// Begins ladder placement mode. Called by AddLadderWindow when user clicks "Place on Map".
+        /// </summary>
+        public void BeginLadderPlacement(AddLadderWindow window, LadderTemplate template)
+        {
+            _addLadderWindow = window;
+            _ladderTemplate = template;
+            _ladderFirstPoint = null;
+            LadderPreviewLine = null;
+            IsPlacingLadder = true;
+        }
+
+
+        /// <summary>
+        /// Called by MapView when user clicks during ladder placement mode.
+        /// Two clicks required: first = start, second = end (must be within 1 cell).
+        /// Returns true if the click was handled.
+        /// </summary>
+        public bool HandleLadderPlacementClick(int uiX, int uiZ)
+        {
+            if (!IsPlacingLadder || _ladderTemplate == null)
+                return false;
+
+            // Snap to nearest vertex (64px grid)
+            int snappedUiX = ((uiX + 32) / 64) * 64;
+            int snappedUiZ = ((uiZ + 32) / 64) * 64;
+            snappedUiX = Math.Clamp(snappedUiX, 0, 8192);
+            snappedUiZ = Math.Clamp(snappedUiZ, 0, 8192);
+
+            // Convert to tile coords (game uses bottom-right origin)
+            byte tileX = (byte)Math.Clamp(128 - (snappedUiX / 64), 0, 127);
+            byte tileZ = (byte)Math.Clamp(128 - (snappedUiZ / 64), 0, 127);
+
+            if (_ladderFirstPoint == null)
+            {
+                // First click - store start point
+                _ladderFirstPoint = (tileX, tileZ);
+                LadderPreviewLine = (snappedUiX, snappedUiZ, snappedUiX, snappedUiZ);
+
+                if (Application.Current.MainWindow?.DataContext is MainWindowViewModel mainVm)
+                {
+                    mainVm.StatusMessage = $"Ladder start: ({tileX},{tileZ}). Click end point (must be within 1 cell). Right-click to cancel.";
+                }
+                return true;
+            }
+            else
+            {
+                // Second click - validate distance and complete
+                byte x0 = _ladderFirstPoint.Value.x;
+                byte z0 = _ladderFirstPoint.Value.z;
+                byte x1 = tileX;
+                byte z1 = tileZ;
+
+                // Calculate distance in cells
+                int deltaX = Math.Abs((int)x1 - (int)x0);
+                int deltaZ = Math.Abs((int)z1 - (int)z0);
+
+                // Ladders must be exactly 1 cell in ONE direction and 0 in the other
+                // Valid: (1,0) or (0,1) - i.e., horizontal or vertical, 1 cell long
+                bool isValid = (deltaX == 1 && deltaZ == 0) || (deltaX == 0 && deltaZ == 1);
+
+                if (!isValid)
+                {
+                    // Invalid - show error but don't cancel, let them try again
+                    string errorMsg;
+                    if (deltaX == 0 && deltaZ == 0)
+                    {
+                        errorMsg = "Start and end points are the same. Ladder must be 1 cell long.";
+                    }
+                    else if (deltaX > 1 || deltaZ > 1)
+                    {
+                        errorMsg = $"Ladder is {Math.Max(deltaX, deltaZ)} cells long. Maximum is 1 cell.";
+                    }
+                    else
+                    {
+                        errorMsg = $"Ladder must be horizontal OR vertical, not diagonal. Distance: ({deltaX},{deltaZ})";
+                    }
+
+                    if (Application.Current.MainWindow?.DataContext is MainWindowViewModel mainVm)
+                    {
+                        mainVm.StatusMessage = $"⚠️ {errorMsg} Try again.";
+                    }
+
+                    // Reset first point so they can start over
+                    _ladderFirstPoint = null;
+                    LadderPreviewLine = null;
+                    return true;
+                }
+
+                // Valid ladder - create it
+                var facetTemplate = new FacetTemplate
+                {
+                    Type = FacetType.Ladder,
+                    Height = _ladderTemplate.Height,
+                    FHeight = _ladderTemplate.FHeight,
+                    BlockHeight = _ladderTemplate.BlockHeight,
+                    Y0 = _ladderTemplate.Y0,
+                    Y1 = _ladderTemplate.Y1,
+                    StyleIndex = _ladderTemplate.StyleIndex,
+                    Flags = 0, // Ladders typically have no flags
+                    BuildingId1 = _ladderTemplate.BuildingId1,
+                    Storey = _ladderTemplate.Storey
+                };
+
+                // Commit the ladder
+                var adder = new BuildingAdder(MapDataService.Instance);
+                var coords = new List<(byte, byte, byte, byte)> { (x0, z0, x1, z1) };
+                var result = adder.TryAddFacets(_ladderTemplate.BuildingId1, coords, facetTemplate);
+
+                if (result.IsSuccess)
+                {
+                    if (Application.Current.MainWindow?.DataContext is MainWindowViewModel mainVm)
+                    {
+                        mainVm.StatusMessage = $"Ladder added at ({x0},{z0})->({x1},{z1}) to Building #{_ladderTemplate.BuildingId1}.";
+                    }
+
+                    MessageBox.Show($"Ladder added successfully to Building #{_ladderTemplate.BuildingId1}.\n\n" +
+                        $"Position: ({x0},{z0}) → ({x1},{z1})\n\n" +
+                        $"Note: The game will transform these coordinates (~67% scaling + perpendicular offset).",
+                        "Ladder Added", MessageBoxButton.OK, MessageBoxImage.Information);
+
+                    EndLadderPlacement(true);
+                }
+                else
+                {
+                    MessageBox.Show($"Failed to add ladder:\n\n{result.ErrorMessage}",
+                        "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+
+                    // Reset to let them try again
+                    _ladderFirstPoint = null;
+                    LadderPreviewLine = null;
+                }
+
+                return true;
+            }
+        }
+
+
+        /// <summary>
+        /// Updates the preview line endpoint as mouse moves during ladder placement.
+        /// </summary>
+        public void UpdateLadderPlacementPreview(int uiX, int uiZ)
+        {
+            if (!IsPlacingLadder || _ladderFirstPoint == null)
+                return;
+
+            // Snap to nearest vertex
+            int snappedUiX = ((uiX + 32) / 64) * 64;
+            int snappedUiZ = ((uiZ + 32) / 64) * 64;
+            snappedUiX = Math.Clamp(snappedUiX, 0, 8192);
+            snappedUiZ = Math.Clamp(snappedUiZ, 0, 8192);
+
+            // Get the first point in UI coords
+            int firstUiX = (128 - _ladderFirstPoint.Value.x) * 64;
+            int firstUiZ = (128 - _ladderFirstPoint.Value.z) * 64;
+
+            LadderPreviewLine = (firstUiX, firstUiZ, snappedUiX, snappedUiZ);
+        }
+
+        /// <summary>
+        /// Cancels ladder placement mode (right-click or escape).
+        /// </summary>
+        public void CancelLadderPlacement()
+        {
+            if (!IsPlacingLadder)
+                return;
+
+            EndLadderPlacement(false);
+
+            if (Application.Current.MainWindow?.DataContext is MainWindowViewModel mainVm)
+            {
+                mainVm.StatusMessage = "Ladder placement cancelled.";
+            }
+        }
+
+        private void EndLadderPlacement(bool success)
+        {
+            IsPlacingLadder = false;
+            LadderPreviewLine = null;
+            _ladderFirstPoint = null;
+
+            if (_addLadderWindow != null)
+            {
+                if (success)
+                    _addLadderWindow.OnPlacementCompleted();
+                else
+                    _addLadderWindow.OnPlacementCancelled();
+            }
+
+            _addLadderWindow = null;
+            _ladderTemplate = null;
+        }
+
         public void RefreshLightsList()
         {
             System.Diagnostics.Debug.WriteLine("[MapVM] RefreshLightsList START");
@@ -652,6 +933,270 @@ namespace UrbanChaosMapEditor.ViewModels
                 });
             }
         }
+        /// <summary>
+        /// Begins facet redraw mode. Called by FacetPreviewWindow when user clicks "Redraw".
+        /// </summary>
+        public void BeginFacetRedraw(FacetPreviewWindow window, int facetId1)
+        {
+            _facetRedrawWindow = window;
+            _facetRedrawId1 = facetId1;
+            _facetRedrawFirstPoint = null;
+            FacetRedrawPreviewLine = null;
+            IsRedrawingFacet = true;
+        }
+
+        /// <summary>
+        /// Called by MapView when user clicks during facet redraw mode.
+        /// Returns true if the click was handled.
+        /// </summary>
+        public bool HandleFacetRedrawClick(int uiX, int uiZ)
+        {
+            if (!IsRedrawingFacet || _facetRedrawWindow == null)
+                return false;
+
+            // Snap to nearest vertex (64px grid)
+            int snappedUiX = ((uiX + 32) / 64) * 64;
+            int snappedUiZ = ((uiZ + 32) / 64) * 64;
+            snappedUiX = Math.Clamp(snappedUiX, 0, 8192);
+            snappedUiZ = Math.Clamp(snappedUiZ, 0, 8192);
+
+            // Convert to tile coords (game uses bottom-right origin)
+            // UI: top-left = (0,0), bottom-right = (8192,8192)
+            // Tile: 0..127, where tile 0 is at UI x=8192, tile 127 is at UI x=64
+            byte tileX = (byte)Math.Clamp(128 - (snappedUiX / 64), 0, 127);
+            byte tileZ = (byte)Math.Clamp(128 - (snappedUiZ / 64), 0, 127);
+
+            if (_facetRedrawFirstPoint == null)
+            {
+                // First click - store start point (X0, Z0)
+                _facetRedrawFirstPoint = (tileX, tileZ);
+                FacetRedrawPreviewLine = (snappedUiX, snappedUiZ, snappedUiX, snappedUiZ);
+                return true;
+            }
+            else
+            {
+                // Second click - complete the facet
+                byte x0 = _facetRedrawFirstPoint.Value.x;
+                byte z0 = _facetRedrawFirstPoint.Value.z;
+                byte x1 = tileX;
+                byte z1 = tileZ;
+
+                // Apply the new coordinates
+                _facetRedrawWindow.ApplyRedrawCoords(x0, z0, x1, z1);
+
+                // End redraw mode and show window
+                EndFacetRedraw(completed: true);
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// Updates the preview line endpoint as mouse moves.
+        /// Called by MapView during mouse move when in redraw mode.
+        /// </summary>
+        public void UpdateFacetRedrawPreview(int uiX, int uiZ)
+        {
+            if (!IsRedrawingFacet || _facetRedrawFirstPoint == null)
+                return;
+
+            // Snap to nearest vertex
+            int snappedUiX = ((uiX + 32) / 64) * 64;
+            int snappedUiZ = ((uiZ + 32) / 64) * 64;
+            snappedUiX = Math.Clamp(snappedUiX, 0, 8192);
+            snappedUiZ = Math.Clamp(snappedUiZ, 0, 8192);
+
+            // Get the first point in UI coords
+            int firstUiX = (128 - _facetRedrawFirstPoint.Value.x) * 64;
+            int firstUiZ = (128 - _facetRedrawFirstPoint.Value.z) * 64;
+
+            FacetRedrawPreviewLine = (firstUiX, firstUiZ, snappedUiX, snappedUiZ);
+        }
+
+        /// <summary>
+        /// Cancels facet redraw mode (right-click or escape).
+        /// </summary>
+        public void CancelFacetRedraw()
+        {
+            EndFacetRedraw(completed: false);
+        }
+
+        private void EndFacetRedraw(bool completed)
+        {
+            IsRedrawingFacet = false;
+            FacetRedrawPreviewLine = null;
+            _facetRedrawFirstPoint = null;
+
+            if (_facetRedrawWindow != null)
+            {
+                if (completed)
+                    _facetRedrawWindow.OnRedrawCompleted();
+                else
+                    _facetRedrawWindow.OnRedrawCancelled();
+            }
+
+            _facetRedrawWindow = null;
+            _facetRedrawId1 = 0;
+        }
+
+        /// <summary>
+        /// Begins facet multi-draw mode. Called by AddFacetWindow when user clicks "Draw on Map".
+        /// </summary>
+        public void BeginFacetMultiDraw(AddFacetWindow window, FacetTemplate template)
+        {
+            _addFacetWindow = window;
+            _facetTemplate = template;
+            _facetsAddedCount = 0;
+            _multiDrawFirstPoint = null;
+            MultiDrawPreviewLine = null;
+            IsMultiDrawingFacets = true;
+        }
+
+        /// <summary>
+        /// Called by MapView when user clicks during facet multi-draw mode.
+        /// Returns true if the click was handled.
+        /// </summary>
+        public bool HandleFacetMultiDrawClick(int uiX, int uiZ)
+        {
+            if (!IsMultiDrawingFacets || _facetTemplate == null)
+                return false;
+
+            // Snap to nearest vertex (64px grid)
+            int snappedUiX = ((uiX + 32) / 64) * 64;
+            int snappedUiZ = ((uiZ + 32) / 64) * 64;
+            snappedUiX = Math.Clamp(snappedUiX, 0, 8192);
+            snappedUiZ = Math.Clamp(snappedUiZ, 0, 8192);
+
+            // Convert to tile coords (game uses bottom-right origin)
+            byte tileX = (byte)Math.Clamp(128 - (snappedUiX / 64), 0, 127);
+            byte tileZ = (byte)Math.Clamp(128 - (snappedUiZ / 64), 0, 127);
+
+            if (_multiDrawFirstPoint == null)
+            {
+                // First click - store start point (X0, Z0)
+                _multiDrawFirstPoint = (tileX, tileZ);
+                MultiDrawPreviewLine = (snappedUiX, snappedUiZ, snappedUiX, snappedUiZ);
+                return true;
+            }
+            else
+            {
+                // Second click - complete and immediately commit this facet
+                byte x0 = _multiDrawFirstPoint.Value.x;
+                byte z0 = _multiDrawFirstPoint.Value.z;
+                byte x1 = tileX;
+                byte z1 = tileZ;
+
+                // Commit this facet immediately
+                var adder = new BuildingAdder(MapDataService.Instance);
+                var coords = new List<(byte, byte, byte, byte)> { (x0, z0, x1, z1) };
+                var result = adder.TryAddFacets(_facetTemplate.BuildingId1, coords, _facetTemplate);
+
+                if (result.IsSuccess)
+                {
+                    _facetsAddedCount++;
+
+                    // Update status
+                    if (Application.Current.MainWindow?.DataContext is MainWindowViewModel mainVm)
+                    {
+                        mainVm.StatusMessage = $"Facet #{_facetsAddedCount} added at ({x0},{z0})->({x1},{z1}). Click to draw more, right-click to finish.";
+                    }
+                }
+                else
+                {
+                    // Show error but continue drawing
+                    if (Application.Current.MainWindow?.DataContext is MainWindowViewModel mainVm)
+                    {
+                        mainVm.StatusMessage = $"Failed to add facet: {result.ErrorMessage}";
+                    }
+                }
+
+                // Reset for next facet
+                _multiDrawFirstPoint = null;
+                MultiDrawPreviewLine = null;
+
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// Updates the preview line endpoint as mouse moves during multi-draw.
+        /// </summary>
+        public void UpdateFacetMultiDrawPreview(int uiX, int uiZ)
+        {
+            if (!IsMultiDrawingFacets || _multiDrawFirstPoint == null)
+                return;
+
+            // Snap to nearest vertex
+            int snappedUiX = ((uiX + 32) / 64) * 64;
+            int snappedUiZ = ((uiZ + 32) / 64) * 64;
+            snappedUiX = Math.Clamp(snappedUiX, 0, 8192);
+            snappedUiZ = Math.Clamp(snappedUiZ, 0, 8192);
+
+            // Get the first point in UI coords
+            int firstUiX = (128 - _multiDrawFirstPoint.Value.x) * 64;
+            int firstUiZ = (128 - _multiDrawFirstPoint.Value.z) * 64;
+
+            MultiDrawPreviewLine = (firstUiX, firstUiZ, snappedUiX, snappedUiZ);
+        }
+
+        /// <summary>
+        /// Finishes facet multi-draw mode (right-click).
+        /// Commits all drawn facets to the building.
+        /// </summary>
+        public void FinishFacetMultiDraw()
+        {
+            if (!IsMultiDrawingFacets)
+                return;
+
+            int totalAdded = _facetsAddedCount;
+            EndFacetMultiDraw(totalAdded);
+
+            if (totalAdded > 0)
+            {
+                MessageBox.Show($"Successfully added {totalAdded} facet(s) to Building #{_facetTemplate?.BuildingId1}.",
+                    "Facets Added", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }
+
+        /// <summary>
+        /// Cancels facet multi-draw mode (right-click with no facets, or escape).
+        /// </summary>
+        public void CancelFacetMultiDraw()
+        {
+            if (!IsMultiDrawingFacets)
+                return;
+
+            int totalAdded = _facetsAddedCount;
+            EndFacetMultiDraw(totalAdded);
+
+            // Facets already added are kept (they were committed immediately)
+            if (totalAdded > 0)
+            {
+                if (Application.Current.MainWindow?.DataContext is MainWindowViewModel mainVm)
+                {
+                    mainVm.StatusMessage = $"Drawing finished. {totalAdded} facet(s) were added.";
+                }
+            }
+        }
+
+        private void EndFacetMultiDraw(int facetsAdded)
+        {
+            IsMultiDrawingFacets = false;
+            MultiDrawPreviewLine = null;
+            _multiDrawFirstPoint = null;
+
+            if (_addFacetWindow != null)
+            {
+                if (facetsAdded > 0)
+                    _addFacetWindow.OnDrawCompleted(facetsAdded);
+                else
+                    _addFacetWindow.OnDrawCancelled();
+            }
+
+            _addFacetWindow = null;
+            _facetTemplate = null;
+            _facetsAddedCount = 0;
+        }
+
         private static string ResolveStyleTmaPath(int world, bool useBeta)
         {
             // Assets/Textures/<release|beta>/World<world>/style.tma
@@ -695,6 +1240,198 @@ namespace UrbanChaosMapEditor.ViewModels
             IsPlacingLight = false;
             LightGhostUiX = LightGhostUiZ = null;
         }
+
+        /// <summary>
+        /// Begins door placement mode. Called by AddDoorWindow when user clicks "Draw on Map".
+        /// </summary>
+        public void BeginDoorPlacement(AddDoorWindow window, DoorTemplate template)
+        {
+            _addDoorWindow = window;
+            _doorTemplate = template;
+            _doorFirstPoint = null;
+            DoorPreviewLine = null;
+            IsPlacingDoor = true;
+        }
+
+        /// <summary>
+        /// Called by MapView when user clicks during door placement mode.
+        /// Two clicks required: first = start, second = end (must be within 1 cell).
+        /// Returns true if the click was handled.
+        /// </summary>
+        public bool HandleDoorPlacementClick(int uiX, int uiZ)
+        {
+            if (!IsPlacingDoor || _doorTemplate == null)
+                return false;
+
+            // Snap to nearest vertex (64px grid)
+            int snappedUiX = ((uiX + 32) / 64) * 64;
+            int snappedUiZ = ((uiZ + 32) / 64) * 64;
+            snappedUiX = Math.Clamp(snappedUiX, 0, 8192);
+            snappedUiZ = Math.Clamp(snappedUiZ, 0, 8192);
+
+            // Convert to tile coords (game uses bottom-right origin)
+            byte tileX = (byte)Math.Clamp(128 - (snappedUiX / 64), 0, 127);
+            byte tileZ = (byte)Math.Clamp(128 - (snappedUiZ / 64), 0, 127);
+
+            if (_doorFirstPoint == null)
+            {
+                // First click - store start point
+                _doorFirstPoint = (tileX, tileZ);
+                DoorPreviewLine = (snappedUiX, snappedUiZ, snappedUiX, snappedUiZ);
+
+                if (Application.Current.MainWindow?.DataContext is MainWindowViewModel mainVm)
+                {
+                    mainVm.StatusMessage = $"Door start: ({tileX},{tileZ}). Click end point (must be within 1 cell). Right-click to cancel.";
+                }
+                return true;
+            }
+            else
+            {
+                // Second click - validate distance and complete
+                byte x0 = _doorFirstPoint.Value.x;
+                byte z0 = _doorFirstPoint.Value.z;
+                byte x1 = tileX;
+                byte z1 = tileZ;
+
+                // Calculate distance in cells
+                int deltaX = Math.Abs((int)x1 - (int)x0);
+                int deltaZ = Math.Abs((int)z1 - (int)z0);
+
+                // Doors must be exactly 1 cell in ONE direction and 0 in the other
+                // Valid: (1,0) or (0,1) - i.e., horizontal or vertical, 1 cell long
+                bool isValid = (deltaX == 1 && deltaZ == 0) || (deltaX == 0 && deltaZ == 1);
+
+                if (!isValid)
+                {
+                    // Invalid - show error but don't cancel, let them try again
+                    string errorMsg;
+                    if (deltaX == 0 && deltaZ == 0)
+                    {
+                        errorMsg = "Start and end points are the same. Door must be 1 cell long.";
+                    }
+                    else if (deltaX > 1 || deltaZ > 1)
+                    {
+                        errorMsg = $"Door is {Math.Max(deltaX, deltaZ)} cells long. Maximum is 1 cell.";
+                    }
+                    else
+                    {
+                        errorMsg = $"Door must be horizontal OR vertical, not diagonal. Distance: ({deltaX},{deltaZ})";
+                    }
+
+                    if (Application.Current.MainWindow?.DataContext is MainWindowViewModel mainVm)
+                    {
+                        mainVm.StatusMessage = $"⚠️ {errorMsg} Try again.";
+                    }
+
+                    // Reset first point so they can start over
+                    _doorFirstPoint = null;
+                    DoorPreviewLine = null;
+                    return true;
+                }
+
+                // Valid door - create it
+                // Door: Height = 4 (1 storey), FHeight = 0, Flags = TwoTextured | Unclimbable
+                var facetTemplate = new FacetTemplate
+                {
+                    Type = FacetType.Door,
+                    Height = 4,           // 1 storey = 4 height units
+                    FHeight = 0,
+                    BlockHeight = _doorTemplate.BlockHeight,
+                    Y0 = _doorTemplate.Y0,
+                    Y1 = _doorTemplate.Y1,
+                    StyleIndex = 1,       // Ignored for doors, but set a valid value
+                    Flags = FacetFlags.TwoTextured | FacetFlags.Unclimbable,
+                    BuildingId1 = _doorTemplate.BuildingId1,
+                    Storey = _doorTemplate.Storey
+                };
+
+                // Commit the door
+                var adder = new BuildingAdder(MapDataService.Instance);
+                var coords = new List<(byte, byte, byte, byte)> { (x0, z0, x1, z1) };
+                var result = adder.TryAddFacets(_doorTemplate.BuildingId1, coords, facetTemplate);
+
+                if (result.IsSuccess)
+                {
+                    if (Application.Current.MainWindow?.DataContext is MainWindowViewModel mainVm)
+                    {
+                        mainVm.StatusMessage = $"Door added at ({x0},{z0})->({x1},{z1}) to Building #{_doorTemplate.BuildingId1}.";
+                    }
+
+                    MessageBox.Show($"Door added successfully to Building #{_doorTemplate.BuildingId1}.\n\n" +
+                        $"Position: ({x0},{z0}) → ({x1},{z1})",
+                        "Door Added", MessageBoxButton.OK, MessageBoxImage.Information);
+
+                    EndDoorPlacement(true);
+                }
+                else
+                {
+                    MessageBox.Show($"Failed to add door:\n\n{result.ErrorMessage}",
+                        "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+
+                    // Reset to let them try again
+                    _doorFirstPoint = null;
+                    DoorPreviewLine = null;
+                }
+
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// Updates the preview line endpoint as mouse moves during door placement.
+        /// </summary>
+        public void UpdateDoorPlacementPreview(int uiX, int uiZ)
+        {
+            if (!IsPlacingDoor || _doorFirstPoint == null)
+                return;
+
+            // Snap to nearest vertex
+            int snappedUiX = ((uiX + 32) / 64) * 64;
+            int snappedUiZ = ((uiZ + 32) / 64) * 64;
+            snappedUiX = Math.Clamp(snappedUiX, 0, 8192);
+            snappedUiZ = Math.Clamp(snappedUiZ, 0, 8192);
+
+            // Get the first point in UI coords
+            int firstUiX = (128 - _doorFirstPoint.Value.x) * 64;
+            int firstUiZ = (128 - _doorFirstPoint.Value.z) * 64;
+
+            DoorPreviewLine = (firstUiX, firstUiZ, snappedUiX, snappedUiZ);
+        }
+
+        /// <summary>
+        /// Cancels door placement mode (right-click or escape).
+        /// </summary>
+        public void CancelDoorPlacement()
+        {
+            if (!IsPlacingDoor)
+                return;
+
+            EndDoorPlacement(false);
+
+            if (Application.Current.MainWindow?.DataContext is MainWindowViewModel mainVm)
+            {
+                mainVm.StatusMessage = "Door placement cancelled.";
+            }
+        }
+
+        private void EndDoorPlacement(bool success)
+        {
+            IsPlacingDoor = false;
+            DoorPreviewLine = null;
+            _doorFirstPoint = null;
+
+            if (_addDoorWindow != null)
+            {
+                if (success)
+                    _addDoorWindow.OnPlacementCompleted();
+                else
+                    _addDoorWindow.OnPlacementCancelled();
+            }
+
+            _addDoorWindow = null;
+            _doorTemplate = null;
+        }
+
 
 
         private static int ParseNumber(string relativeKey)

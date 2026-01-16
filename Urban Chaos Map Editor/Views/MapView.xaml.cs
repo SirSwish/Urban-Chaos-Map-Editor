@@ -66,6 +66,63 @@ namespace UrbanChaosMapEditor.Views
 
             Point mouseDownPos = e.GetPosition(Surface);
 
+            // === FACET REDRAW MODE ===
+            if (vm.IsRedrawingFacet)
+            {
+                Point p = e.GetPosition(Surface);
+                int uiX = (int)Math.Clamp(p.X, 0, MapConstants.MapPixels);
+                int uiZ = (int)Math.Clamp(p.Y, 0, MapConstants.MapPixels);
+
+                if (vm.HandleFacetRedrawClick(uiX, uiZ))
+                {
+                    e.Handled = true;
+                    InvalidateVisual(); // Refresh to show/hide preview line
+                    return;
+                }
+            }
+            // === FACET MULTI-DRAW MODE ===
+            if (vm.IsMultiDrawingFacets)
+            {
+                Point p = e.GetPosition(Surface);
+                int uiX = (int)Math.Clamp(p.X, 0, MapConstants.MapPixels);
+                int uiZ = (int)Math.Clamp(p.Y, 0, MapConstants.MapPixels);
+
+                if (vm.HandleFacetMultiDrawClick(uiX, uiZ))
+                {
+                    e.Handled = true;
+                    return;
+                }
+            }
+
+            // === LADDER PLACEMENT MODE ===
+            if (vm.IsPlacingLadder)
+            {
+                Point p = e.GetPosition(Surface);
+                int uiX = (int)Math.Clamp(p.X, 0, MapConstants.MapPixels);
+                int uiZ = (int)Math.Clamp(p.Y, 0, MapConstants.MapPixels);
+
+                if (vm.HandleLadderPlacementClick(uiX, uiZ))
+                {
+                    e.Handled = true;
+                    return;
+                }
+            }
+
+            // === DOOR PLACEMENT MODE ===
+            if (vm.IsPlacingDoor)
+            {
+                Point p = e.GetPosition(Surface);
+                int uiX = (int)Math.Clamp(p.X, 0, MapConstants.MapPixels);
+                int uiZ = (int)Math.Clamp(p.Y, 0, MapConstants.MapPixels);
+
+                if (vm.HandleDoorPlacementClick(uiX, uiZ))
+                {
+                    e.Handled = true;
+                    return;
+                }
+            }
+
+
             if (DataContext is MapViewModel vmLight && vmLight.IsPlacingLight)
             {
                 Point p = e.GetPosition(Surface);
@@ -355,6 +412,38 @@ namespace UrbanChaosMapEditor.Views
             vm.CursorTileX = System.Math.Clamp(gameX / MapConstants.TileSize, 0, MapConstants.TilesPerSide - 1);
             vm.CursorTileZ = System.Math.Clamp(gameZ / MapConstants.TileSize, 0, MapConstants.TilesPerSide - 1);
 
+            // Update facet redraw preview line
+            if (vm.IsRedrawingFacet)
+            {
+                int uiX = (int)Math.Clamp(p.X, 0, MapConstants.MapPixels);
+                int uiZ = (int)Math.Clamp(p.Y, 0, MapConstants.MapPixels);
+                vm.UpdateFacetRedrawPreview(uiX, uiZ);
+            }
+
+            // Update facet multi-draw preview line
+            if (vm.IsMultiDrawingFacets)
+            {
+                int uiX = (int)Math.Clamp(p.X, 0, MapConstants.MapPixels);
+                int uiZ = (int)Math.Clamp(p.Y, 0, MapConstants.MapPixels);
+                vm.UpdateFacetMultiDrawPreview(uiX, uiZ);
+            }
+
+            // Update ladder placement preview
+            if (vm.IsPlacingLadder)
+            {
+                int uiX = (int)Math.Clamp(p.X, 0, MapConstants.MapPixels);
+                int uiZ = (int)Math.Clamp(p.Y, 0, MapConstants.MapPixels);
+                vm.UpdateLadderPlacementPreview(uiX, uiZ);
+            }
+
+            // Update door placement preview
+            if (vm.IsPlacingDoor)
+            {
+                int uiX = (int)Math.Clamp(p.X, 0, MapConstants.MapPixels);
+                int uiZ = (int)Math.Clamp(p.Y, 0, MapConstants.MapPixels);
+                vm.UpdateDoorPlacementPreview(uiX, uiZ);
+            }
+
             if (_isLeveling && e.LeftButton == MouseButtonState.Pressed && Surface != null)
             {
                 if (FindAncestor<ScrollBar>(e.OriginalSource as DependencyObject) != null)
@@ -446,6 +535,42 @@ namespace UrbanChaosMapEditor.Views
                 e.Handled = true;
                 return;
             }
+            // Escape cancels facet redraw
+            if (e.Key == Key.Escape && vm.IsRedrawingFacet)
+            {
+                vm.CancelFacetRedraw();
+                if (Application.Current.MainWindow?.DataContext is MainWindowViewModel shell)
+                    shell.StatusMessage = "Facet redraw cancelled.";
+                e.Handled = true;
+                return;
+            }
+            // Escape cancels facet redraw
+            if (e.Key == Key.Escape && vm.IsPlacingLadder)
+            {
+                vm.CancelLadderPlacement();
+                if (Application.Current.MainWindow?.DataContext is MainWindowViewModel shell)
+                    shell.StatusMessage = "Ladder placement cancelled.";
+                e.Handled = true;
+                return;
+            }
+            // Escape cancels door placement
+            if (e.Key == Key.Escape && vm.IsPlacingDoor)
+            {
+                vm.CancelDoorPlacement();
+                if (Application.Current.MainWindow?.DataContext is MainWindowViewModel shell)
+                    shell.StatusMessage = "Door placement cancelled.";
+                e.Handled = true;
+                return;
+            }
+            // Escape cancels facet multi-draw
+            if (e.Key == Key.Escape && vm.IsMultiDrawingFacets)
+            {
+                vm.CancelFacetMultiDraw();
+                if (Application.Current.MainWindow?.DataContext is MainWindowViewModel shell)
+                    shell.StatusMessage = "Facet drawing cancelled.";
+                e.Handled = true;
+                return;
+            }
         }
 
         private void OnLostMouseCapture(object? sender, MouseEventArgs e)
@@ -483,6 +608,44 @@ namespace UrbanChaosMapEditor.Views
                 _isLeveling = false;
                 _lastLeveledTile = null;
                 if (IsMouseCaptured) ReleaseMouseCapture();
+            }
+
+            // Cancel facet redraw mode
+            if (DataContext is MapViewModel vmFacet && vmFacet.IsRedrawingFacet)
+            {
+                vmFacet.CancelFacetRedraw();
+                if (Application.Current.MainWindow?.DataContext is MainWindowViewModel shellFacet)
+                    shellFacet.StatusMessage = "Facet redraw cancelled.";
+                e.Handled = true;
+                return;
+            }
+
+            // Finish/cancel facet multi-draw mode
+            if (DataContext is MapViewModel vmMultiDraw && vmMultiDraw.IsMultiDrawingFacets)
+            {
+                vmMultiDraw.FinishFacetMultiDraw();
+                e.Handled = true;
+                return;
+            }
+
+            // Cancel ladder placement mode
+            if (DataContext is MapViewModel vmLadder && vmLadder.IsPlacingLadder)
+            {
+                vmLadder.CancelLadderPlacement();
+                if (Application.Current.MainWindow?.DataContext is MainWindowViewModel shellLadder)
+                    shellLadder.StatusMessage = "Ladder placement cancelled.";
+                e.Handled = true;
+                return;
+            }
+
+            // Cancel door placement mode
+            if (DataContext is MapViewModel vmDoor && vmDoor.IsPlacingDoor)
+            {
+                vmDoor.CancelDoorPlacement();
+                if (Application.Current.MainWindow?.DataContext is MainWindowViewModel shellDoor)
+                    shellDoor.StatusMessage = "Door placement cancelled.";
+                e.Handled = true;
+                return;
             }
 
             if (DataContext is MapViewModel vm0 && vm0.IsPlacingPrim)

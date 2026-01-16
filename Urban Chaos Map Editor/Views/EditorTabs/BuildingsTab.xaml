@@ -6,7 +6,6 @@
              xmlns:m="clr-namespace:UrbanChaosMapEditor.Models"
              Foreground="White">
 
-    <!-- Remove this if the parent sets DataContext -->
     <UserControl.DataContext>
         <vm:BuildingsTabViewModel/>
     </UserControl.DataContext>
@@ -21,25 +20,48 @@
         <SolidColorBrush x:Key="FacetOtherBrush"  Color="#7FD4FF"/>
 
         <!-- Global text colour for this tab -->
-        <SolidColorBrush x:Key="TreeViewForegroundBrush" Color="White"/>
+        <SolidColorBrush x:Key="ListForegroundBrush" Color="White"/>
         <SolidColorBrush x:Key="LegendTextBrush" Color="#FF303030"/>
 
         <!-- Make ALL TextBlocks white by default -->
         <Style TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{StaticResource TreeViewForegroundBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource ListForegroundBrush}"/>
         </Style>
 
-        <!-- Ensure TreeView items keep white text even when selected/disabled -->
-        <Style TargetType="TreeViewItem">
-            <Setter Property="Foreground" Value="{StaticResource TreeViewForegroundBrush}"/>
-            <Style.Triggers>
-                <Trigger Property="IsSelected" Value="True">
-                    <Setter Property="Foreground" Value="{StaticResource TreeViewForegroundBrush}"/>
-                </Trigger>
-                <Trigger Property="IsEnabled" Value="False">
-                    <Setter Property="Foreground" Value="#88FFFFFF"/>
-                </Trigger>
-            </Style.Triggers>
+        <!-- ListBox item style -->
+        <Style x:Key="SelectableListBoxItem" TargetType="ListBoxItem">
+            <Setter Property="Foreground" Value="{StaticResource ListForegroundBrush}"/>
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#3A5A8A"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#2A3A5A"/>
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsSelected" Value="True"/>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="Bd" Property="Background" Value="#4A6A9A"/>
+                            </MultiTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <!-- Pill-style ToggleButton -->
@@ -93,284 +115,254 @@
             <Setter Property="FontSize" Value="11"/>
         </Style>
 
+        <!-- Compact action button style -->
+        <Style x:Key="CompactActionButton" TargetType="Button">
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="MinWidth" Value="32"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontSize" Value="14"/>
+        </Style>
+
         <!-- Facet color converter -->
         <conv:FacetTypeToBrushConverter x:Key="FacetTypeToBrush"/>
     </UserControl.Resources>
 
     <DockPanel>
-        <!-- Toolbar -->
-        <StackPanel DockPanel.Dock="Top"
-                    Orientation="Horizontal"
-                    Margin="8,6"
-                    VerticalAlignment="Center">
-            <StackPanel Orientation="Vertical">
-                <WrapPanel Margin="0,4,0,0"
-                           VerticalAlignment="Center"
-                           Orientation="Horizontal">
+        <!-- Toolbar: Filter toggles + Action buttons -->
+        <Grid DockPanel.Dock="Top" Margin="8,6">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
 
-                    <ToggleButton Style="{StaticResource LegendTogglePillCompact}"
-                                  Background="{StaticResource FacetWallBrush}"
-                                  IsChecked="{Binding FilterWalls}">
-                        <TextBlock Text="Walls" Style="{StaticResource LegendPillTextStyleCompact}"/>
-                    </ToggleButton>
+            <!-- Filter toggles (left) -->
+            <WrapPanel Grid.Column="0" VerticalAlignment="Center" Orientation="Horizontal">
+                <ToggleButton Style="{StaticResource LegendTogglePillCompact}"
+                              Background="{StaticResource FacetWallBrush}"
+                              IsChecked="{Binding FilterWalls}">
+                    <TextBlock Text="Walls" Style="{StaticResource LegendPillTextStyleCompact}"/>
+                </ToggleButton>
 
-                    <ToggleButton Style="{StaticResource LegendTogglePillCompact}"
-                                  Background="{StaticResource FacetFenceBrush}"
-                                  IsChecked="{Binding FilterFences}">
-                        <TextBlock Text="Fences" Style="{StaticResource LegendPillTextStyleCompact}"/>
-                    </ToggleButton>
+                <ToggleButton Style="{StaticResource LegendTogglePillCompact}"
+                              Background="{StaticResource FacetFenceBrush}"
+                              IsChecked="{Binding FilterFences}">
+                    <TextBlock Text="Fences" Style="{StaticResource LegendPillTextStyleCompact}"/>
+                </ToggleButton>
 
-                    <ToggleButton Style="{StaticResource LegendTogglePillCompact}"
-                                  Background="{StaticResource FacetDoorBrush}"
-                                  IsChecked="{Binding FilterDoors}">
-                        <TextBlock Text="Doors" Style="{StaticResource LegendPillTextStyleCompact}"/>
-                    </ToggleButton>
+                <ToggleButton Style="{StaticResource LegendTogglePillCompact}"
+                              Background="{StaticResource FacetDoorBrush}"
+                              IsChecked="{Binding FilterDoors}">
+                    <TextBlock Text="Doors" Style="{StaticResource LegendPillTextStyleCompact}"/>
+                </ToggleButton>
 
-                    <ToggleButton Style="{StaticResource LegendTogglePillCompact}"
-                                  Background="{StaticResource FacetLadderBrush}"
-                                  IsChecked="{Binding FilterLadders}">
-                        <TextBlock Text="Ladders" Style="{StaticResource LegendPillTextStyleCompact}"/>
-                    </ToggleButton>
+                <ToggleButton Style="{StaticResource LegendTogglePillCompact}"
+                              Background="{StaticResource FacetLadderBrush}"
+                              IsChecked="{Binding FilterLadders}">
+                    <TextBlock Text="Ladders" Style="{StaticResource LegendPillTextStyleCompact}"/>
+                </ToggleButton>
 
-                    <ToggleButton Style="{StaticResource LegendTogglePillCompact}"
-                                  Background="{StaticResource FacetCableBrush}"
-                                  IsChecked="{Binding ShowCablesList}">
-                        <TextBlock Text="Cables" Style="{StaticResource LegendPillTextStyleCompact}"/>
-                    </ToggleButton>
-                </WrapPanel>
-            </StackPanel>
-        </StackPanel>
+                <ToggleButton Style="{StaticResource LegendTogglePillCompact}"
+                              Background="{StaticResource FacetCableBrush}"
+                              IsChecked="{Binding ShowCablesList}">
+                    <TextBlock Text="Cables" Style="{StaticResource LegendPillTextStyleCompact}"/>
+                </ToggleButton>
+            </WrapPanel>
 
-        <!-- Columnar stack: Top (buildings + facets/walkables) | Splitter | Details -->
+        </Grid>
+
+        <!-- Main content area -->
         <Grid Margin="8">
             <Grid.RowDefinitions>
                 <RowDefinition Height="*" />
                 <RowDefinition Height="6" />
+                <RowDefinition Height="Auto" MinHeight="120" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <!-- TOP ROW -->
+            <!-- TOP ROW: Three-column layout (Buildings | Facet Types | Facets) OR Cables list -->
             <Grid Grid.Row="0">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="8" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
+                <!-- Three-column Facets view -->
+                <Grid>
+                    <Grid.Style>
+                        <Style TargetType="Grid">
+                            <Setter Property="Visibility" Value="Visible"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding ShowCablesList}" Value="True">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Grid.Style>
 
-                <!-- Buildings list -->
-                <TreeView Grid.Column="0"
-                          Width="110"
-                          Margin="0,0,8,0"
-                          ItemsSource="{Binding Buildings}"
-                          SelectedItemChanged="BuildingTree_OnSelectedItemChanged"
-                          BorderThickness="0">
-                    <TreeView.ItemTemplate>
-                        <HierarchicalDataTemplate DataType="{x:Type vm:BuildingVM}"
-                                                  ItemsSource="{Binding VisibleStoreys}">
-                            <TextBlock Text="{Binding DisplayName}"/>
-                            <HierarchicalDataTemplate.ItemTemplate>
-                                <DataTemplate DataType="{x:Type vm:StoreyVM}">
-                                    <TextBlock Text="{Binding DisplayName}"/>
-                                </DataTemplate>
-                            </HierarchicalDataTemplate.ItemTemplate>
-                        </HierarchicalDataTemplate>
-                    </TreeView.ItemTemplate>
-                </TreeView>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="70" />
+                        <ColumnDefinition Width="4" />
+                        <ColumnDefinition Width="100" />
+                        <ColumnDefinition Width="4" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
 
-                <!-- Right side: split vertically into (Facets/Cables) and (Walkables/RoofFace4) -->
-                <Grid Grid.Column="2">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="*" />
-                        <RowDefinition Height="6" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
+                    <!-- Column 1: Buildings list -->
+                    <Border Grid.Column="0" BorderBrush="#333" BorderThickness="1" CornerRadius="4">
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Top" 
+                                       Text="Buildings" 
+                                       FontWeight="SemiBold" 
+                                       FontSize="10"
+                                       Padding="4,2"
+                                       Background="#2A2D32"/>
+                            <ListBox x:Name="BuildingsList"
+                                     ItemsSource="{Binding Buildings}"
+                                     SelectedItem="{Binding SelectedBuilding, Mode=TwoWay}"
+                                     SelectionChanged="BuildingsList_SelectionChanged"
+                                     MouseDoubleClick="BuildingsList_MouseDoubleClick"
+                                     PreviewMouseRightButtonDown="BuildingsList_PreviewMouseRightButtonDown"
+                                     ItemContainerStyle="{StaticResource SelectableListBoxItem}"
+                                     Background="Transparent"
+                                     BorderThickness="0">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:BuildingVM}">
+                                        <TextBlock Text="{Binding ShortDisplayName}" FontSize="11"/>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </DockPanel>
+                    </Border>
 
-                    <!-- ===================== TOP: Facets / Cables ===================== -->
-                    <Grid Grid.Row="0">
-                        <!-- Facet tree -->
-                        <TreeView ItemsSource="{Binding SelectedBuildingFacetGroups}"
-                                  SelectedItemChanged="TreeView_OnSelectedItemChanged"
-                                  MouseDoubleClick="TreeView_OnMouseDoubleClick"
-                                  Foreground="{StaticResource TreeViewForegroundBrush}"
-                                  TextElement.Foreground="{StaticResource TreeViewForegroundBrush}">
-                            <TreeView.Style>
-                                <Style TargetType="TreeView">
+                    <!-- Column 2: Facet Types list -->
+                    <Border Grid.Column="2" BorderBrush="#333" BorderThickness="1" CornerRadius="4">
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Top" 
+                                       Text="Types" 
+                                       FontWeight="SemiBold" 
+                                       FontSize="10"
+                                       Padding="4,2"
+                                       Background="#2A2D32"/>
+                            <ListBox x:Name="FacetTypesList"
+                                     ItemsSource="{Binding SelectedBuildingFacetGroups}"
+                                     SelectedItem="{Binding SelectedFacetTypeGroup, Mode=TwoWay}"
+                                     SelectionChanged="FacetTypesList_SelectionChanged"
+                                     ItemContainerStyle="{StaticResource SelectableListBoxItem}"
+                                     Background="Transparent"
+                                     BorderThickness="0">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:FacetTypeGroupVM}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Ellipse Width="8" Height="8" Margin="0,0,4,0">
+                                                <Ellipse.Fill>
+                                                    <MultiBinding Converter="{StaticResource FacetTypeToBrush}">
+                                                        <Binding Path="Type"/>
+                                                        <Binding Source="{StaticResource FacetWallBrush}"/>
+                                                        <Binding Source="{StaticResource FacetFenceBrush}"/>
+                                                        <Binding Source="{StaticResource FacetCableBrush}"/>
+                                                        <Binding Source="{StaticResource FacetDoorBrush}"/>
+                                                        <Binding Source="{StaticResource FacetLadderBrush}"/>
+                                                        <Binding Source="{StaticResource FacetOtherBrush}"/>
+                                                    </MultiBinding>
+                                                </Ellipse.Fill>
+                                            </Ellipse>
+                                            <TextBlock Text="{Binding TypeName}" FontSize="11"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </DockPanel>
+                    </Border>
+
+                    <!-- Column 3: Facets list -->
+                    <Border Grid.Column="4" BorderBrush="#333" BorderThickness="1" CornerRadius="4">
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Top" 
+                                       Text="Facets" 
+                                       FontWeight="SemiBold" 
+                                       FontSize="10"
+                                       Padding="4,2"
+                                       Background="#2A2D32"/>
+                            <ListBox x:Name="FacetsList"
+                                     ItemsSource="{Binding SelectedFacetTypeGroup.Facets}"
+                                     SelectedItem="{Binding SelectedFacet, Mode=TwoWay}"
+                                     SelectionChanged="FacetsList_SelectionChanged"
+                                     MouseDoubleClick="FacetsList_MouseDoubleClick"
+                                     ItemContainerStyle="{StaticResource SelectableListBoxItem}"
+                                     Background="Transparent"
+                                     BorderThickness="0">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:FacetVM}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="#" FontSize="11"/>
+                                            <TextBlock Text="{Binding FacetId1}" FontWeight="Bold" FontSize="11" Margin="1,0,4,0"/>
+                                            <TextBlock Text="{Binding Coords}" FontSize="11" Opacity="0.8"/>
+                                            <TextBlock Text=" Alt:" FontSize="11" Opacity="0.6"/>
+                                            <TextBlock Text="{Binding Y0}" FontSize="11"/>
+                                            <!-- Painted marker -->
+                                            <TextBlock Text=" 🖌" FontSize="10">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsPainted}" Value="True">
+                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </DockPanel>
+                    </Border>
+                </Grid>
+
+                <!-- Cables list (shown when ShowCablesList is true) -->
+                <Border BorderBrush="#333" BorderThickness="1" CornerRadius="4">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding ShowCablesList}" Value="True">
                                     <Setter Property="Visibility" Value="Visible"/>
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding ShowCablesList}" Value="True">
-                                            <Setter Property="Visibility" Value="Collapsed"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </TreeView.Style>
-
-                            <TreeView.ItemTemplate>
-                                <HierarchicalDataTemplate DataType="{x:Type vm:FacetTypeGroupVM}"
-                                                          ItemsSource="{Binding Facets}">
-                                    <StackPanel Orientation="Horizontal">
-                                        <Ellipse Width="9" Height="9" Margin="0,0,6,0">
-                                            <Ellipse.Fill>
-                                                <MultiBinding Converter="{StaticResource FacetTypeToBrush}">
-                                                    <Binding Path="Type"/>
-                                                    <Binding Source="{StaticResource FacetWallBrush}"/>
-                                                    <Binding Source="{StaticResource FacetFenceBrush}"/>
-                                                    <Binding Source="{StaticResource FacetCableBrush}"/>
-                                                    <Binding Source="{StaticResource FacetDoorBrush}"/>
-                                                    <Binding Source="{StaticResource FacetLadderBrush}"/>
-                                                    <Binding Source="{StaticResource FacetOtherBrush}"/>
-                                                </MultiBinding>
-                                            </Ellipse.Fill>
-                                        </Ellipse>
-                                        <TextBlock Text="{Binding TypeName}" FontWeight="SemiBold"/>
-                                        <TextBlock Text="  ("/>
-                                        <TextBlock Text="{Binding Count}"/>
-                                        <TextBlock Text=" facets)"/>
-                                    </StackPanel>
-
-                                    <HierarchicalDataTemplate.ItemTemplate>
-                                        <DataTemplate DataType="{x:Type vm:FacetVM}">
-                                            <StackPanel Orientation="Horizontal">
-                                                <!-- Facet number -->
-                                                <TextBlock Text="#"/>
-                                                <TextBlock Text="{Binding FacetId1}" FontWeight="Bold" Margin="2,0"/>
-
-                                                <!-- Coords -->
-                                                <TextBlock Text="  " />
-                                                <TextBlock Text="{Binding Coords}"/>
-
-                                                <!-- Starting floor -->
-                                                <TextBlock Text="  Floor: " />
-                                                <TextBlock Text="{Binding Y0}" />
-
-                                                <!-- Painted marker (paintbrush) -->
-                                                <TextBlock Text="  " />
-                                                <TextBlock Text="🖌">
-                                                    <TextBlock.Style>
-                                                        <Style TargetType="TextBlock">
-                                                            <Setter Property="Visibility" Value="Collapsed"/>
-                                                            <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding IsPainted}" Value="True">
-                                                                    <Setter Property="Visibility" Value="Visible"/>
-                                                                </DataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </TextBlock.Style>
-                                                </TextBlock>
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </HierarchicalDataTemplate.ItemTemplate>
-                                </HierarchicalDataTemplate>
-                            </TreeView.ItemTemplate>
-                        </TreeView>
-
-                        <!-- Cables list -->
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top" 
+                                   Text="Cables (All Buildings)" 
+                                   FontWeight="SemiBold" 
+                                   FontSize="10"
+                                   Padding="4,2"
+                                   Background="#2A2D32"/>
                         <ListView x:Name="CableList"
-                                  Margin="0"
                                   ItemsSource="{Binding CableFacets}"
                                   SelectionChanged="CableList_OnSelectionChanged"
-                                  MouseDoubleClick="CableList_OnMouseDoubleClick">
-                            <ListView.Style>
-                                <Style TargetType="ListView">
-                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding ShowCablesList}" Value="True">
-                                            <Setter Property="Visibility" Value="Visible"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </ListView.Style>
-
+                                  MouseDoubleClick="CableList_OnMouseDoubleClick"
+                                  Background="Transparent"
+                                  BorderThickness="0">
                             <ListView.View>
                                 <GridView>
-                                    <GridViewColumn Header="Facet#" Width="60"
+                                    <GridViewColumn Header="#" Width="50"
                                                     DisplayMemberBinding="{Binding FacetId1}"/>
                                     <GridViewColumn Header="Coords" Width="160"
                                                     DisplayMemberBinding="{Binding Coords}"/>
-                                    <GridViewColumn Header="Height" Width="70"
+                                    <GridViewColumn Header="Height" Width="60"
                                                     DisplayMemberBinding="{Binding Height}"/>
-                                    <GridViewColumn Header="Sag / Angles" Width="220"
+                                    <GridViewColumn Header="Sag / Angles" Width="180"
                                                     DisplayMemberBinding="{Binding StyleDisplay}"/>
-                                    <GridViewColumn Header="Flags" Width="90"
+                                    <GridViewColumn Header="Flags" Width="80"
                                                     DisplayMemberBinding="{Binding Flags}"/>
                                 </GridView>
                             </ListView.View>
                         </ListView>
-                    </Grid>
-
-                    <!-- Splitter between facets and walkables -->
-                    <GridSplitter Grid.Row="1"
-                                  HorizontalAlignment="Stretch"
-                                  VerticalAlignment="Center"
-                                  Height="6"
-                                  Background="#22000000"
-                                  ShowsPreview="True"/>
-
-                    <!-- ===================== BOTTOM: Walkables + RoofFace4 ===================== -->
-                    <Grid Grid.Row="2">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="8" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-
-                        <!-- Walkables -->
-                        <Border Grid.Column="0" BorderBrush="#333" BorderThickness="1" CornerRadius="6" Padding="6">
-                            <DockPanel>
-                                <TextBlock DockPanel.Dock="Top"
-                                           FontWeight="Bold"
-                                           Margin="0,0,0,6"
-                                           Text="Walkables (Selected Building)"/>
-                                <ListView x:Name="WalkablesList"
-          ItemsSource="{Binding SelectedBuildingWalkables}"
-          SelectionChanged="WalkablesList_OnSelectionChanged"
-          MouseDoubleClick="WalkablesList_OnMouseDoubleClick">
-
-                                    <ListView.View>
-                                        <GridView>
-                                            <GridViewColumn Header="#" Width="50" DisplayMemberBinding="{Binding WalkableId1}"/>
-                                            <GridViewColumn Header="Rect" Width="200" DisplayMemberBinding="{Binding Rect}"/>
-                                            <GridViewColumn Header="Y" Width="55" DisplayMemberBinding="{Binding Y}"/>
-                                            <GridViewColumn Header="StoreyY" Width="70" DisplayMemberBinding="{Binding StoreyY}"/>
-                                            <GridViewColumn Header="Face4" Width="120" DisplayMemberBinding="{Binding Face4Span}"/>
-                                            <GridViewColumn Header="Next" Width="70" DisplayMemberBinding="{Binding Next}"/>
-                                        </GridView>
-                                    </ListView.View>
-                                </ListView>
-                            </DockPanel>
-                        </Border>
-
-                        <!-- small gap col=1 -->
-
-                        <!-- RoofFace4 for selected walkable -->
-                        <Border Grid.Column="2" BorderBrush="#333" BorderThickness="1" CornerRadius="6" Padding="6">
-                            <DockPanel>
-                                <TextBlock DockPanel.Dock="Top"
-                                           FontWeight="Bold"
-                                           Margin="0,0,0,6"
-                                           Text="RoofFace4 (Selected Walkable)"/>
-                                <ListView x:Name="RoofFaces4List"
-          ItemsSource="{Binding SelectedWalkableRoofFaces4}"
-          MouseDoubleClick="RoofFaces4List_OnMouseDoubleClick">
-
-                                    <ListView.View>
-                                        <GridView>
-                                            <GridViewColumn Header="#" Width="50" DisplayMemberBinding="{Binding FaceId}"/>
-                                            <GridViewColumn Header="Y" Width="55" DisplayMemberBinding="{Binding Y}"/>
-                                            <GridViewColumn Header="DY" Width="120" DisplayMemberBinding="{Binding DY}"/>
-                                            <GridViewColumn Header="RX" Width="55" DisplayMemberBinding="{Binding RX}"/>
-                                            <GridViewColumn Header="RZ" Width="55" DisplayMemberBinding="{Binding RZ}"/>
-                                            <GridViewColumn Header="Flags" Width="70" DisplayMemberBinding="{Binding DrawFlags}"/>
-                                            <GridViewColumn Header="Next" Width="70" DisplayMemberBinding="{Binding Next}"/>
-                                        </GridView>
-                                    </ListView.View>
-                                </ListView>
-                            </DockPanel>
-                        </Border>
-                    </Grid>
-                </Grid>
+                    </DockPanel>
+                </Border>
             </Grid>
 
-            <!-- Splitter -->
+            <!-- Splitter between facets and walkables -->
             <GridSplitter Grid.Row="1"
                           HorizontalAlignment="Stretch"
                           VerticalAlignment="Center"
@@ -378,127 +370,177 @@
                           Background="#22000000"
                           ShowsPreview="True"/>
 
-            <!-- Details panel (unchanged) -->
-            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
-                <StackPanel Margin="0,6,0,0">
-                    <Border Padding="10" BorderBrush="#333" BorderThickness="1" CornerRadius="6">
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="8"/>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="8"/>
-                                <RowDefinition Height="Auto"/>
-                            </Grid.RowDefinitions>
+            <!-- MIDDLE ROW: Walkables + RoofFace4 -->
+            <Grid Grid.Row="2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="8" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
 
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="150"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
+                <!-- Walkables -->
+                <Border Grid.Column="0" BorderBrush="#333" BorderThickness="1" CornerRadius="6" Padding="6">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top"
+                                   FontWeight="Bold"
+                                   FontSize="11"
+                                   Margin="0,0,0,4"
+                                   Text="Walkables (Selected Building)"/>
+                        <ListView x:Name="WalkablesList"
+                                  ItemsSource="{Binding SelectedBuildingWalkables}"
+                                  SelectionChanged="WalkablesList_OnSelectionChanged"
+                                  MouseDoubleClick="WalkablesList_OnMouseDoubleClick"
+                                  Background="Transparent"
+                                  BorderThickness="0">
+                            <ListView.View>
+                                <GridView>
+                                    <GridViewColumn Header="#" Width="40" DisplayMemberBinding="{Binding WalkableId1}"/>
+                                    <GridViewColumn Header="Rect" Width="150" DisplayMemberBinding="{Binding Rect}"/>
+                                    <GridViewColumn Header="Y" Width="45" DisplayMemberBinding="{Binding Y}"/>
+                                    <GridViewColumn Header="StoreyY" Width="55" DisplayMemberBinding="{Binding StoreyY}"/>
+                                    <GridViewColumn Header="Face4" Width="80" DisplayMemberBinding="{Binding Face4Span}"/>
+                                    <GridViewColumn Header="Next" Width="50" DisplayMemberBinding="{Binding Next}"/>
+                                </GridView>
+                            </ListView.View>
+                        </ListView>
+                    </DockPanel>
+                </Border>
 
-                            <TextBlock Grid.Row="0" Grid.ColumnSpan="2"
-                                       Text="Selection"
-                                       FontWeight="Bold"
-                                       FontSize="13"/>
+                <!-- RoofFace4 for selected walkable -->
+                <Border Grid.Column="2" BorderBrush="#333" BorderThickness="1" CornerRadius="6" Padding="6">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top"
+                                   FontWeight="Bold"
+                                   FontSize="11"
+                                   Margin="0,0,0,4"
+                                   Text="RoofFace4 (Selected Walkable)"/>
+                        <ListView x:Name="RoofFaces4List"
+                                  ItemsSource="{Binding SelectedWalkableRoofFaces4}"
+                                  MouseDoubleClick="RoofFaces4List_OnMouseDoubleClick"
+                                  Background="Transparent"
+                                  BorderThickness="0">
+                            <ListView.View>
+                                <GridView>
+                                    <GridViewColumn Header="#" Width="40" DisplayMemberBinding="{Binding FaceId}"/>
+                                    <GridViewColumn Header="Y" Width="45" DisplayMemberBinding="{Binding Y}"/>
+                                    <GridViewColumn Header="DY" Width="80" DisplayMemberBinding="{Binding DY}"/>
+                                    <GridViewColumn Header="RX" Width="45" DisplayMemberBinding="{Binding RX}"/>
+                                    <GridViewColumn Header="RZ" Width="45" DisplayMemberBinding="{Binding RZ}"/>
+                                    <GridViewColumn Header="Flags" Width="55" DisplayMemberBinding="{Binding DrawFlags}"/>
+                                    <GridViewColumn Header="Next" Width="50" DisplayMemberBinding="{Binding Next}"/>
+                                </GridView>
+                            </ListView.View>
+                        </ListView>
+                    </DockPanel>
+                </Border>
+            </Grid>
 
-                            <TextBlock Grid.Row="2" Grid.ColumnSpan="2"
-                                       Opacity="0.65"
-                                       Text="No building selected.">
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
-                                        <Setter Property="Visibility" Value="Collapsed"/>
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding HasSelectedBuildingRec, Mode=OneWay}" Value="False">
-                                                <Setter Property="Visibility" Value="Visible"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
+            <!-- BOTTOM ROW: Action Buttons -->
+            <Border Grid.Row="3" 
+                    BorderBrush="#333" 
+                    BorderThickness="1" 
+                    CornerRadius="6" 
+                    Padding="8"
+                    Margin="0,8,0,0"
+                    Background="#1A1D20">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                    <!-- Add Building -->
+                    <Button Content="➕"
+                            Style="{StaticResource CompactActionButton}"
+                            Background="#205C27"
+                            BorderBrush="#208020"
+                            ToolTip="Add a new empty building to the map"
+                            Click="BtnAddBuilding_Click"
+                            Margin="0,0,4,0"/>
 
-                            <Grid Grid.Row="2" Grid.ColumnSpan="2">
-                                <Grid.Style>
-                                    <Style TargetType="Grid">
-                                        <Setter Property="Visibility" Value="Visible"/>
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding HasSelectedBuildingRec, Mode=OneWay}" Value="False">
-                                                <Setter Property="Visibility" Value="Collapsed"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Grid.Style>
+                    <!-- Add Facets (visible when building selected) -->
+                    <Button Content="📐"
+                            Style="{StaticResource CompactActionButton}"
+                            Background="#205C5C"
+                            BorderBrush="#207080"
+                            ToolTip="Add facets to the selected building by drawing on the map"
+                            Click="BtnAddFacet_Click"
+                            Margin="0,0,4,0">
+                        <Button.Visibility>
+                            <Binding Path="HasSelectedBuildingRec" Mode="OneWay">
+                                <Binding.Converter>
+                                    <BooleanToVisibilityConverter/>
+                                </Binding.Converter>
+                            </Binding>
+                        </Button.Visibility>
+                    </Button>
 
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="Auto"/>
-                                </Grid.RowDefinitions>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="150"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
+                    <!-- Add Ladder (visible when building selected) -->
+                    <Button Content="🪜"
+                            Style="{StaticResource CompactActionButton}"
+                            Background="#4A3520"
+                            BorderBrush="#6A5530"
+                            ToolTip="Add a ladder to the selected building (1 cell width)"
+                            Click="BtnAddLadder_Click"
+                            Margin="0,0,4,0">
+                        <Button.Visibility>
+                            <Binding Path="HasSelectedBuildingRec" Mode="OneWay">
+                                <Binding.Converter>
+                                    <BooleanToVisibilityConverter/>
+                                </Binding.Converter>
+                            </Binding>
+                        </Button.Visibility>
+                    </Button>
 
-                                <TextBlock Grid.Row="0" Grid.Column="0" Opacity="0.75" Text="Building #:"/>
-                                <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding SelectedBuildingId, Mode=OneWay}"/>
+                    <!-- Add Door (visible when building selected) -->
+                    <Button Content="🚪"
+                            Style="{StaticResource CompactActionButton}"
+                            Background="#2D4A5A"
+                            BorderBrush="#4A6A7A"
+                            ToolTip="Add a door to the selected building (1 cell width and height)"
+                            Click="BtnAddDoor_Click"
+                            Margin="0,0,16,0">
+                        <Button.Visibility>
+                            <Binding Path="HasSelectedBuildingRec" Mode="OneWay">
+                                <Binding.Converter>
+                                    <BooleanToVisibilityConverter/>
+                                </Binding.Converter>
+                            </Binding>
+                        </Button.Visibility>
+                    </Button>
 
-                                <TextBlock Grid.Row="1" Grid.Column="0" Opacity="0.75" Text="Selected Storey:"/>
-                                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SelectedStoreyId, Mode=OneWay}"/>
+                    <!-- Separator -->
+                    <Rectangle Width="1" Fill="#444" Margin="0,2,16,2"/>
 
-                                <TextBlock Grid.Row="2" Grid.Column="0" Opacity="0.75" Text="Facet Range:"/>
-                                <TextBlock Grid.Row="2" Grid.Column="1">
-                                    <Run Text="Start="/>
-                                    <Run Text="{Binding SelectedBuildingRec.StartFacet, Mode=OneWay}"/>
-                                    <Run Text="   End="/>
-                                    <Run Text="{Binding SelectedBuildingRec.EndFacet, Mode=OneWay}"/>
-                                    <Run Text="   (Count="/>
-                                    <Run Text="{Binding SelectedBuildingFacetRangeCount, Mode=OneWay}"/>
-                                    <Run Text=")"/>
-                                </TextBlock>
+                    <!-- Delete Facet (visible when facet selected) -->
+                    <Button Content="🗑️"
+                            Style="{StaticResource CompactActionButton}"
+                            Background="#5C3020"
+                            BorderBrush="#804020"
+                            ToolTip="Delete the selected facet"
+                            Click="BtnDeleteFacet_Click"
+                            Margin="0,0,4,0">
+                        <Button.Visibility>
+                            <Binding Path="HasSelectedFacet" Mode="OneWay">
+                                <Binding.Converter>
+                                    <BooleanToVisibilityConverter/>
+                                </Binding.Converter>
+                            </Binding>
+                        </Button.Visibility>
+                    </Button>
 
-                                <TextBlock Grid.Row="3" Grid.Column="0" Opacity="0.75" Text="World Position:"/>
-                                <TextBlock Grid.Row="3" Grid.Column="1">
-                                    <Run Text="X="/>
-                                    <Run Text="{Binding SelectedBuildingRec.WorldX, Mode=OneWay}"/>
-                                    <Run Text="   Y="/>
-                                    <Run Text="{Binding SelectedBuildingRec.WorldY, Mode=OneWay}"/>
-                                    <Run Text="   Z="/>
-                                    <Run Text="{Binding SelectedBuildingRec.WorldZ, Mode=OneWay}"/>
-                                </TextBlock>
-
-                                <TextBlock Grid.Row="4" Grid.Column="0" Opacity="0.75" Text="Walkable / Ware:"/>
-                                <TextBlock Grid.Row="4" Grid.Column="1">
-                                    <Run Text="Walkable="/>
-                                    <Run Text="{Binding SelectedBuildingRec.Walkable, Mode=OneWay}"/>
-                                    <Run Text="   Ware="/>
-                                    <Run Text="{Binding SelectedBuildingRec.Ware, Mode=OneWay}"/>
-                                </TextBlock>
-
-                                <TextBlock Grid.Row="5" Grid.Column="0" Opacity="0.75" Text="Type / Counters:"/>
-                                <TextBlock Grid.Row="5" Grid.Column="1">
-                                    <Run Text="Type="/>
-                                    <Run Text="{Binding SelectedBuildingRec.TypeDisplay, Mode=OneWay}"/>
-                                    <Run Text="   Counter0="/>
-                                    <Run Text="{Binding SelectedBuildingRec.Counter0, Mode=OneWay}"/>
-                                    <Run Text="   Counter1="/>
-                                    <Run Text="{Binding SelectedBuildingRec.Counter1, Mode=OneWay}"/>
-                                </TextBlock>
-                            </Grid>
-
-                            <TextBlock Grid.Row="8" Grid.ColumnSpan="2"
-                                       Opacity="0.6"
-                                       Text="(Display-only preview. Editing to come.)"
-                                       VerticalAlignment="Bottom"/>
-                        </Grid>
-                    </Border>
+                    <!-- Delete Building (visible when building selected) -->
+                    <Button Content="🏚️"
+                            Style="{StaticResource CompactActionButton}"
+                            Background="#5C2020"
+                            BorderBrush="#802020"
+                            ToolTip="Delete the selected building and all its facets, walkables, and roof faces"
+                            Click="BtnDeleteBuilding_Click">
+                        <Button.Visibility>
+                            <Binding Path="HasSelectedBuildingRec" Mode="OneWay">
+                                <Binding.Converter>
+                                    <BooleanToVisibilityConverter/>
+                                </Binding.Converter>
+                            </Binding>
+                        </Button.Visibility>
+                    </Button>
                 </StackPanel>
-            </ScrollViewer>
+            </Border>
         </Grid>
     </DockPanel>
 </UserControl>
