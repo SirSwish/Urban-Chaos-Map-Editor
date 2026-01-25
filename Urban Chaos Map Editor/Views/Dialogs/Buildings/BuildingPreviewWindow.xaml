@@ -82,6 +82,33 @@
 
             <Separator Margin="0,4,0,8"/>
 
+            <!-- NEW: Raw bytes dump -->
+            <Expander Header="Raw bytes" IsExpanded="False" Margin="0,0,0,8">
+                <StackPanel>
+                    <TextBlock Opacity="0.7" Margin="0,0,0,6">
+            <Run Text="Offset: "/>
+            <Run Text="{Binding RawBytesOffsetHex}"/>
+            <Run Text="    Length: "/>
+            <Run Text="{Binding RawBytesLength}"/>
+            <Run Text=" bytes"/>
+                    </TextBlock>
+
+                    <TextBox Text="{Binding RawBytesHex}"
+                 FontFamily="Consolas"
+                 FontSize="12"
+                 Background="#0E0E0E"
+                 Foreground="White"
+                 BorderBrush="#333"
+                 BorderThickness="1"
+                 Padding="6"
+                 IsReadOnly="True"
+                 TextWrapping="Wrap"
+                 VerticalScrollBarVisibility="Auto"
+                 HorizontalScrollBarVisibility="Disabled"
+                 Height="150"/>
+                </StackPanel>
+            </Expander>
+
             <TextBlock Opacity="0.6"
                        FontSize="11"
                        Text="Display-only preview of raw DBuildingRec. Editing UI to come." />

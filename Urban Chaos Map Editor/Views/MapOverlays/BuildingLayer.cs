@@ -31,6 +31,8 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
         private static readonly Pen PenRoofBlue;
         private static readonly Pen PenInsideGray;
         private static readonly Pen PenDefault;
+        // In BuildingLayer class fields section:
+        private static readonly Pen PenCablePreview;
 
         static BuildingLayer()
         {
@@ -52,6 +54,17 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
             PenRoofBlue = Make(new Pen(Brushes.DeepSkyBlue, 4.5));
             PenInsideGray = Make(new Pen(Brushes.SlateGray, 4.5));
             PenDefault = Make(new Pen(fluoroGreen, 4.5));
+
+            // Cable preview pen (red dashed)
+            var cablePreviewBrush = new SolidColorBrush(Color.FromRgb(0xFF, 0x44, 0x44));
+            cablePreviewBrush.Freeze();
+            PenCablePreview = new Pen(cablePreviewBrush, 3.0)
+            {
+                DashStyle = new DashStyle(new double[] { 6, 3 }, 0),
+                StartLineCap = PenLineCap.Round,
+                EndLineCap = PenLineCap.Round
+            };
+            PenCablePreview.Freeze();
         }
 
         // ----- glow stack for highlight -----
@@ -141,6 +154,14 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
                 e.PropertyName == nameof(MapViewModel.SelectedPrim))
             {
                 Dispatcher.Invoke(InvalidateVisual);
+            }
+
+            // Add this check for cable preview line
+            if (e.PropertyName == nameof(MapViewModel.CablePreviewLine) ||
+                e.PropertyName == nameof(MapViewModel.IsPlacingCable))
+            {
+                Dispatcher.Invoke(InvalidateVisual);
+                return;
             }
         }
 
@@ -290,6 +311,21 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
                     dc.DrawLine(_glowPenNarrow, p1, p2);
                     dc.DrawLine(_edgePen, p1, p2);
                 }
+            }
+
+            // ---------- Cable placement preview line ----------
+            if (_vm?.CablePreviewLine != null)
+            {
+                var line = _vm.CablePreviewLine.Value;
+                var p1 = new Point(line.uiX0, line.uiZ0);
+                var p2 = new Point(line.uiX1, line.uiZ1);
+
+                // Draw dashed preview line
+                dc.DrawLine(PenCablePreview, p1, p2);
+
+                // Draw endpoint markers
+                dc.DrawEllipse(Brushes.LimeGreen, new Pen(Brushes.White, 1), p1, 5, 5);
+                dc.DrawEllipse(Brushes.Orange, new Pen(Brushes.White, 1), p2, 5, 5);
             }
 
             Debug.WriteLine($"[Buildings] Render drew {drawn} facet segments.");

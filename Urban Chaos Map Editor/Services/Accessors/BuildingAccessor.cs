@@ -235,6 +235,8 @@ namespace UrbanChaosMapEditor.Services
             Debug.WriteLine($"[BuildingsAccessor] Extracted cables={cables.Length}");
 
             // ---- dstyles ----
+            // NOTE: Unlike paint_mem and dstoreys, dstyles DOES use index 0
+            // The file contains next_dstyle entries (indices 0 to next_dstyle-1)
             short[] styles = Array.Empty<short>();
             if (nextDStyle > 0)
             {
@@ -254,6 +256,8 @@ namespace UrbanChaosMapEditor.Services
             }
 
             // ---- paint_mem ----
+            // NOTE: The original format writes next_paint_mem bytes including unused slot 0
+            // We read all bytes so that paint_mem[Index] works with 1-based Index values
             byte[] paintMem = Array.Empty<byte>();
             if (saveType >= 17 && nextPaintMem > 0)
             {
@@ -271,6 +275,8 @@ namespace UrbanChaosMapEditor.Services
             }
 
             // ---- dstoreys ----
+            // NOTE: The original format writes next_dstorey entries including unused slot 0
+            // We read all entries so that dstoreys[Id] works with 1-based Id values
             var storeys = Array.Empty<BuildingArrays.DStoreyRec>();
             if (saveType >= 17 && nextDStorey > 0)
             {
@@ -581,27 +587,28 @@ namespace UrbanChaosMapEditor.Services
         }
 
         // ---------- Optional: strict scan helper ----------
+        // ---------- Region finder: PC .IAM only (no heuristic scan) ----------
         public static bool TryFindRegion(byte[] bytes, int objectOffset, out int headerOffset, out int regionLength)
         {
-            headerOffset = -1; regionLength = 0;
-            if (bytes == null || objectOffset <= 0 || objectOffset > bytes.Length) return false;
+            headerOffset = -1;
+            regionLength = 0;
 
-            int window = Math.Min(objectOffset, 1 * 1024 * 1024);
-            int start = objectOffset - window;
+            if (bytes == null)
+                return false;
 
-            for (int off = start; off <= objectOffset - HeaderSize; off += 2)
-            {
-                if (!PlausibleHeader(bytes, off, objectOffset, out long facetsOff, out long facetsEnd)) continue;
+            // PC .IAM: building block header is always at 0x18008
+            const int PcBuildingsHeaderOffset = 0x18008;
 
-                int pad = (int)(objectOffset - facetsEnd);
-                if (pad < 0 || pad > 16) continue;
-                if (!IsZero(bytes, (int)facetsEnd, pad)) continue;
+            // Basic sanity checks
+            if (bytes.Length <= PcBuildingsHeaderOffset)
+                return false;
 
-                headerOffset = off;
-                regionLength = objectOffset - off;
-                return true;
-            }
-            return false;
+            if (objectOffset <= PcBuildingsHeaderOffset || objectOffset > bytes.Length)
+                return false;
+
+            headerOffset = PcBuildingsHeaderOffset;
+            regionLength = objectOffset - PcBuildingsHeaderOffset;
+            return true;
         }
 
         // ---------- Walkables getters ----------

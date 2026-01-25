@@ -1,19 +1,20 @@
 ﻿// /ViewModels/MapViewModel.cs
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.Runtime.CompilerServices;
-using System.Windows.Media;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Resources;
 using System.Windows.Media.Imaging;
 using UrbanChaosMapEditor.Models;
 using UrbanChaosMapEditor.Services;
+using UrbanChaosMapEditor.Services.DataServices;
+using UrbanChaosMapEditor.Services.Textures; // brings in TextureGroup
 using UrbanChaosMapEditor.Views.Dialogs.Buildings;
 using static UrbanChaosMapEditor.Models.PrimCatalog;
 using static UrbanChaosMapEditor.Services.TexturesAccessor;
-using UrbanChaosMapEditor.Services.DataServices;
-using UrbanChaosMapEditor.Services.Textures; // brings in TextureGroup
 
 namespace UrbanChaosMapEditor.ViewModels
 {
@@ -95,6 +96,11 @@ namespace UrbanChaosMapEditor.ViewModels
         public ICommand FlattenHeightCommand { get; }
         public ICommand DitchTemplateCommand { get; }
         public ICommand ClearToolCommand { get; }
+        // Altitude
+        public ICommand SetAltitudeCommand { get; }
+        public ICommand SampleAltitudeCommand { get; }
+        public ICommand ResetAltitudeCommand { get; }
+        public ICommand DetectRoofCommand { get; }
 
 
         private bool _isMapLoaded;
@@ -150,7 +156,7 @@ namespace UrbanChaosMapEditor.ViewModels
 
         // Facet multi-draw mode state
         private bool _isMultiDrawingFacets;
-        private AddFacetWindow? _addFacetWindow;
+        private AddWallWindow? _addFacetWindow;
         private FacetTemplate? _facetTemplate;
         private int _facetsAddedCount;
         private (byte x, byte z)? _multiDrawFirstPoint;
@@ -175,6 +181,26 @@ namespace UrbanChaosMapEditor.ViewModels
         {
             get => _doorPreviewLine;
             set { if (_doorPreviewLine != value) { _doorPreviewLine = value; OnPropertyChanged(); } }
+        }
+
+        // Cable placement mode state
+        private bool _isPlacingCable;
+        private AddCableWindow? _addCableWindow;
+        private (byte x, byte z)? _cableFirstPoint;
+        private (int uiX0, int uiZ0, int uiX1, int uiZ1)? _cablePreviewLine;
+
+        /// <summary>True when user is in cable placement mode.</summary>
+        public bool IsPlacingCable
+        {
+            get => _isPlacingCable;
+            set { if (_isPlacingCable != value) { _isPlacingCable = value; OnPropertyChanged(); } }
+        }
+
+        /// <summary>Preview line for cable placement.</summary>
+        public (int uiX0, int uiZ0, int uiX1, int uiZ1)? CablePreviewLine
+        {
+            get => _cablePreviewLine;
+            set { if (_cablePreviewLine != value) { _cablePreviewLine = value; OnPropertyChanged(); } }
         }
 
         // Ladder placement mode state
@@ -286,6 +312,185 @@ namespace UrbanChaosMapEditor.ViewModels
             }
         }
 
+        // ===== Cell Altitude editing =====
+        private int _targetAltitude = 0; // world altitude value
+        public int TargetAltitude
+        {
+            get => _targetAltitude;
+            set
+            {
+                if (_targetAltitude != value)
+                {
+                    _targetAltitude = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(TargetAltitudeRaw));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Raw altitude value as stored in file (TargetAltitude >> 3).
+        /// Read-only display property.
+        /// </summary>
+        public int TargetAltitudeRaw => TargetAltitude >> 3; // PAP_ALT_SHIFT = 3
+
+        // ===== Altitude painting state (for rectangle selection and overlay) =====
+        private bool _isSettingAltitude;
+        public bool IsSettingAltitude
+        {
+            get => _isSettingAltitude;
+            set
+            {
+                if (_isSettingAltitude != value)
+                {
+                    _isSettingAltitude = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        // Rectangle selection: start corner (set on mouse down)
+        private int _altitudeSelectionStartX = -1;
+        private int _altitudeSelectionStartY = -1;
+        public int AltitudeSelectionStartX
+        {
+            get => _altitudeSelectionStartX;
+            set { _altitudeSelectionStartX = value; OnPropertyChanged(); }
+        }
+        public int AltitudeSelectionStartY
+        {
+            get => _altitudeSelectionStartY;
+            set { _altitudeSelectionStartY = value; OnPropertyChanged(); }
+        }
+
+        // Rectangle selection: current corner (updated on mouse move)
+        private int _altitudeSelectionEndX = -1;
+        private int _altitudeSelectionEndY = -1;
+        public int AltitudeSelectionEndX
+        {
+            get => _altitudeSelectionEndX;
+            set { _altitudeSelectionEndX = value; OnPropertyChanged(); }
+        }
+        public int AltitudeSelectionEndY
+        {
+            get => _altitudeSelectionEndY;
+            set { _altitudeSelectionEndY = value; OnPropertyChanged(); }
+        }
+
+        /// <summary>
+        /// Gets the normalized selection rectangle (min/max corners).
+        /// Returns null if no valid selection.
+        /// </summary>
+        public (int MinX, int MinY, int MaxX, int MaxY)? GetAltitudeSelectionRect()
+        {
+            if (!IsSettingAltitude ||
+                AltitudeSelectionStartX < 0 || AltitudeSelectionStartY < 0 ||
+                AltitudeSelectionEndX < 0 || AltitudeSelectionEndY < 0)
+                return null;
+
+            int minX = Math.Min(AltitudeSelectionStartX, AltitudeSelectionEndX);
+            int maxX = Math.Max(AltitudeSelectionStartX, AltitudeSelectionEndX);
+            int minY = Math.Min(AltitudeSelectionStartY, AltitudeSelectionEndY);
+            int maxY = Math.Max(AltitudeSelectionStartY, AltitudeSelectionEndY);
+
+            return (minX, minY, maxX, maxY);
+        }
+
+        /// <summary>
+        /// Clears the altitude selection state.
+        /// </summary>
+        public void ClearAltitudeSelection()
+        {
+            IsSettingAltitude = false;
+            AltitudeSelectionStartX = -1;
+            AltitudeSelectionStartY = -1;
+            AltitudeSelectionEndX = -1;
+            AltitudeSelectionEndY = -1;
+        }
+
+        private HashSet<(int, int)>? _altitudePaintedTiles;
+        public HashSet<(int, int)>? AltitudePaintedTiles
+        {
+            get => _altitudePaintedTiles;
+            set
+            {
+                _altitudePaintedTiles = value;
+                OnPropertyChanged();
+            }
+        }
+
+        /// <summary>
+        /// Call this after adding tiles to AltitudePaintedTiles to trigger overlay repaint.
+        /// </summary>
+        public void NotifyAltitudePaintedTilesChanged()
+        {
+            OnPropertyChanged(nameof(AltitudePaintedTiles));
+        }
+
+
+        private AltitudeAccessor? _altitudeAccessor;
+        public AltitudeAccessor? AltitudeAccessor => _altitudeAccessor;
+
+        #region Walkable Drawing Selection
+
+        private bool _isDrawingWalkable;
+        public bool IsDrawingWalkable
+        {
+            get => _isDrawingWalkable;
+            set { _isDrawingWalkable = value; OnPropertyChanged(); }
+        }
+
+        private int _walkableSelectionStartX = -1;
+        public int WalkableSelectionStartX
+        {
+            get => _walkableSelectionStartX;
+            set { _walkableSelectionStartX = value; OnPropertyChanged(); }
+        }
+
+        private int _walkableSelectionStartY = -1;
+        public int WalkableSelectionStartY
+        {
+            get => _walkableSelectionStartY;
+            set { _walkableSelectionStartY = value; OnPropertyChanged(); }
+        }
+
+        private int _walkableSelectionEndX = -1;
+        public int WalkableSelectionEndX
+        {
+            get => _walkableSelectionEndX;
+            set { _walkableSelectionEndX = value; OnPropertyChanged(); }
+        }
+
+        private int _walkableSelectionEndY = -1;
+        public int WalkableSelectionEndY
+        {
+            get => _walkableSelectionEndY;
+            set { _walkableSelectionEndY = value; OnPropertyChanged(); }
+        }
+
+        public (int MinX, int MinY, int MaxX, int MaxY)? GetWalkableSelectionRect()
+        {
+            if (_walkableSelectionStartX < 0 || _walkableSelectionStartY < 0) return null;
+
+            int minX = Math.Min(_walkableSelectionStartX, _walkableSelectionEndX);
+            int minY = Math.Min(_walkableSelectionStartY, _walkableSelectionEndY);
+            int maxX = Math.Max(_walkableSelectionStartX, _walkableSelectionEndX);
+            int maxY = Math.Max(_walkableSelectionStartY, _walkableSelectionEndY);
+
+            return (minX, minY, maxX, maxY);
+        }
+
+        public void ClearWalkableSelection()
+        {
+            IsDrawingWalkable = false;
+            WalkableSelectionStartX = -1;
+            WalkableSelectionStartY = -1;
+            WalkableSelectionEndX = -1;
+            WalkableSelectionEndY = -1;
+        }
+
+        #endregion
+
         // ===== Textures: world / set (beta) / selection =====
         private int _textureWorld;
         public int TextureWorld
@@ -344,6 +549,80 @@ namespace UrbanChaosMapEditor.ViewModels
                 var v = ((value % 4) + 4) % 4;
                 if (_selectedRotationIndex != v) { _selectedRotationIndex = v; OnPropertyChanged(); }
             }
+        }
+
+        // ===== Texture painting state (for rectangle selection) =====
+        private bool _isPaintingTexture;
+        public bool IsPaintingTexture
+        {
+            get => _isPaintingTexture;
+            set
+            {
+                if (_isPaintingTexture != value)
+                {
+                    _isPaintingTexture = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        // Rectangle selection for texture painting: start corner (set on mouse down)
+        private int _textureSelectionStartX = -1;
+        private int _textureSelectionStartY = -1;
+        public int TextureSelectionStartX
+        {
+            get => _textureSelectionStartX;
+            set { _textureSelectionStartX = value; OnPropertyChanged(); }
+        }
+        public int TextureSelectionStartY
+        {
+            get => _textureSelectionStartY;
+            set { _textureSelectionStartY = value; OnPropertyChanged(); }
+        }
+
+        // Rectangle selection for texture painting: current corner (updated on mouse move)
+        private int _textureSelectionEndX = -1;
+        private int _textureSelectionEndY = -1;
+        public int TextureSelectionEndX
+        {
+            get => _textureSelectionEndX;
+            set { _textureSelectionEndX = value; OnPropertyChanged(); }
+        }
+        public int TextureSelectionEndY
+        {
+            get => _textureSelectionEndY;
+            set { _textureSelectionEndY = value; OnPropertyChanged(); }
+        }
+
+        /// <summary>
+        /// Gets the normalized texture selection rectangle (min/max corners).
+        /// Returns null if no valid selection.
+        /// </summary>
+        public (int MinX, int MinY, int MaxX, int MaxY)? GetTextureSelectionRect()
+        {
+            if (!IsPaintingTexture ||
+                TextureSelectionStartX < 0 || TextureSelectionStartY < 0 ||
+                TextureSelectionEndX < 0 || TextureSelectionEndY < 0)
+                return null;
+
+            int minX = Math.Min(TextureSelectionStartX, TextureSelectionEndX);
+            int maxX = Math.Max(TextureSelectionStartX, TextureSelectionEndX);
+            int minY = Math.Min(TextureSelectionStartY, TextureSelectionEndY);
+            int maxY = Math.Max(TextureSelectionStartY, TextureSelectionEndY);
+
+            return (minX, minY, maxX, maxY);
+        }
+
+        /// <summary>
+        /// Clears the texture selection state.
+        /// </summary>
+        public void ClearTextureSelection()
+        {
+            IsPaintingTexture = false;
+            TextureSelectionStartX = -1;
+            TextureSelectionStartY = -1;
+            TextureSelectionEndX = -1;
+            TextureSelectionEndY = -1;
         }
 
         private PrimListItem? _selectedPrim;
@@ -530,6 +809,10 @@ namespace UrbanChaosMapEditor.ViewModels
             FlattenHeightCommand = new RelayCommand(_ => SelectedTool = EditorTool.FlattenHeight, _ => IsMapLoaded);
             DitchTemplateCommand = new RelayCommand(_ => SelectedTool = EditorTool.DitchTemplate, _ => IsMapLoaded);
             ClearToolCommand = new RelayCommand(_ => SelectedTool = EditorTool.None, _ => IsMapLoaded);
+            SetAltitudeCommand = new RelayCommand(_ => SelectedTool = EditorTool.SetAltitude, _ => IsMapLoaded);
+            SampleAltitudeCommand = new RelayCommand(_ => SelectedTool = EditorTool.SampleAltitude, _ => IsMapLoaded);
+            ResetAltitudeCommand = new RelayCommand(_ => SelectedTool = EditorTool.ResetAltitude, _ => IsMapLoaded);
+            DetectRoofCommand = new RelayCommand(_ => SelectedTool = EditorTool.DetectRoof, _ => IsMapLoaded);
 
             PropertyChanged += (_, e) =>
             {
@@ -720,7 +1003,6 @@ namespace UrbanChaosMapEditor.ViewModels
                     BlockHeight = _ladderTemplate.BlockHeight,
                     Y0 = _ladderTemplate.Y0,
                     Y1 = _ladderTemplate.Y1,
-                    StyleIndex = _ladderTemplate.StyleIndex,
                     Flags = 0, // Ladders typically have no flags
                     BuildingId1 = _ladderTemplate.BuildingId1,
                     Storey = _ladderTemplate.Storey
@@ -1041,7 +1323,7 @@ namespace UrbanChaosMapEditor.ViewModels
         /// <summary>
         /// Begins facet multi-draw mode. Called by AddFacetWindow when user clicks "Draw on Map".
         /// </summary>
-        public void BeginFacetMultiDraw(AddFacetWindow window, FacetTemplate template)
+        public void BeginFacetMultiDraw(AddWallWindow window, FacetTemplate template)
         {
             _addFacetWindow = window;
             _facetTemplate = template;
@@ -1197,25 +1479,47 @@ namespace UrbanChaosMapEditor.ViewModels
             _facetsAddedCount = 0;
         }
 
-        private static string ResolveStyleTmaPath(int world, bool useBeta)
+        private static Uri ResolveStyleTmaPath(int world, bool useBeta)
         {
-            // Assets/Textures/<release|beta>/World<world>/style.tma
-            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            var set = useBeta ? "beta" : "release";
-            return System.IO.Path.Combine(baseDir, "Assets", "Textures", set, $"World{world}", "style.tma");
+            var set = useBeta ? "Beta" : "Release";
+            // e.g. pack://application:,,,/Assets/Textures/Release/world3/style.tma
+            return new Uri(
+                $"pack://application:,,,/Assets/Textures/{set}/world{world}/style.tma",
+                UriKind.Absolute);
         }
+
 
         private async void LoadStylesForCurrentWorldAsync()
         {
             try
             {
-                var path = ResolveStyleTmaPath(TextureWorld, UseBetaTextures);
-                if (System.IO.File.Exists(path))
-                    await UrbanChaosMapEditor.Services.DataServices.StyleDataService.Instance.LoadAsync(path);
+                var uri = ResolveStyleTmaPath(TextureWorld, UseBetaTextures);
+                System.Diagnostics.Debug.WriteLine($"STYLE URI = {uri}");
+
+                // Try to get the embedded resource stream
+                StreamResourceInfo? sri = Application.GetResourceStream(uri);
+                if (sri != null && sri.Stream != null)
+                {
+                    using (var stream = sri.Stream)
+                    {
+                        // Load via the resource-stream API we just implemented
+                        await StyleDataService.Instance.LoadFromResourceStreamAsync(
+                            stream,
+                            uri.ToString());
+                    }
+                }
                 else
-                    UrbanChaosMapEditor.Services.DataServices.StyleDataService.Instance.Clear();
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        "[StyleDataService] style.tma resource not found for current world");
+                    StyleDataService.Instance.Clear();
+                }
             }
-            catch { /* non-fatal */ }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[StyleDataService] Failed to load styles: {ex}");
+                StyleDataService.Instance.Clear();
+            }
         }
 
         // helper used above
@@ -1234,6 +1538,121 @@ namespace UrbanChaosMapEditor.ViewModels
             }
             catch { return null; }
         }
+
+        /// <summary>
+        /// Begins cable placement mode. Called by AddCableWindow when user clicks "Draw on Map".
+        /// </summary>
+        /// <summary>
+        /// Begins cable placement mode. Called by AddCableWindow when user clicks "Draw on Map".
+        /// </summary>
+        public void BeginCablePlacement(AddCableWindow window)
+        {
+            _addCableWindow = window;
+            _cableFirstPoint = null;
+            CablePreviewLine = null;
+            IsPlacingCable = true;
+        }
+
+        /// <summary>
+        /// Called by MapView when user clicks during cable placement mode.
+        /// Two clicks required: first = start, second = end.
+        /// Returns true if the click was handled.
+        /// </summary>
+        public bool HandleCablePlacementClick(int uiX, int uiZ)
+        {
+            if (!IsPlacingCable || _addCableWindow == null)
+                return false;
+
+            // Snap to nearest vertex (64px grid)
+            int snappedUiX = ((uiX + 32) / 64) * 64;
+            int snappedUiZ = ((uiZ + 32) / 64) * 64;
+            snappedUiX = Math.Clamp(snappedUiX, 0, 8192);
+            snappedUiZ = Math.Clamp(snappedUiZ, 0, 8192);
+
+            // Convert to tile coords (game uses bottom-right origin)
+            byte tileX = (byte)Math.Clamp(128 - (snappedUiX / 64), 0, 127);
+            byte tileZ = (byte)Math.Clamp(128 - (snappedUiZ / 64), 0, 127);
+
+            if (_cableFirstPoint == null)
+            {
+                // First click - store start point
+                _cableFirstPoint = (tileX, tileZ);
+                CablePreviewLine = (snappedUiX, snappedUiZ, snappedUiX, snappedUiZ);
+
+                if (Application.Current.MainWindow?.DataContext is MainWindowViewModel mainVm)
+                {
+                    mainVm.StatusMessage = $"Cable start: ({tileX},{tileZ}). Click end point. Right-click to cancel.";
+                }
+                return true;
+            }
+            else
+            {
+                // Second click - complete placement and return to window
+                byte x0 = _cableFirstPoint.Value.x;
+                byte z0 = _cableFirstPoint.Value.z;
+                byte x1 = tileX;
+                byte z1 = tileZ;
+
+                // Return coordinates to the AddCableWindow
+                _addCableWindow?.OnPlacementCompleted(x0, z0, x1, z1);
+
+                if (Application.Current.MainWindow?.DataContext is MainWindowViewModel mainVm)
+                {
+                    mainVm.StatusMessage = $"Cable endpoints set: ({x0},{z0}) → ({x1},{z1}). Configure parameters and click Create.";
+                }
+
+                EndCablePlacement();
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// Updates the preview line endpoint as mouse moves during cable placement.
+        /// </summary>
+        public void UpdateCablePlacementPreview(int uiX, int uiZ)
+        {
+            if (!IsPlacingCable || _cableFirstPoint == null)
+                return;
+
+            // Snap to nearest vertex
+            int snappedUiX = ((uiX + 32) / 64) * 64;
+            int snappedUiZ = ((uiZ + 32) / 64) * 64;
+            snappedUiX = Math.Clamp(snappedUiX, 0, 8192);
+            snappedUiZ = Math.Clamp(snappedUiZ, 0, 8192);
+
+            // Get the first point in UI coords
+            int firstUiX = (128 - _cableFirstPoint.Value.x) * 64;
+            int firstUiZ = (128 - _cableFirstPoint.Value.z) * 64;
+
+            CablePreviewLine = (firstUiX, firstUiZ, snappedUiX, snappedUiZ);
+        }
+
+        /// <summary>
+        /// Cancels cable placement mode (right-click or escape).
+        /// </summary>
+        public void CancelCablePlacement()
+        {
+            if (!IsPlacingCable)
+                return;
+
+            _addCableWindow?.OnPlacementCancelled();
+
+            if (Application.Current.MainWindow?.DataContext is MainWindowViewModel mainVm)
+            {
+                mainVm.StatusMessage = "Cable placement cancelled.";
+            }
+
+            EndCablePlacement();
+        }
+
+        private void EndCablePlacement()
+        {
+            IsPlacingCable = false;
+            CablePreviewLine = null;
+            _cableFirstPoint = null;
+            _addCableWindow = null;
+        }
+
 
         public void CancelPlaceLight()
         {
@@ -1339,7 +1758,6 @@ namespace UrbanChaosMapEditor.ViewModels
                     BlockHeight = _doorTemplate.BlockHeight,
                     Y0 = _doorTemplate.Y0,
                     Y1 = _doorTemplate.Y1,
-                    StyleIndex = 1,       // Ignored for doors, but set a valid value
                     Flags = FacetFlags.TwoTextured | FacetFlags.Unclimbable,
                     BuildingId1 = _doorTemplate.BuildingId1,
                     Storey = _doorTemplate.Storey
@@ -1432,6 +1850,83 @@ namespace UrbanChaosMapEditor.ViewModels
             _doorTemplate = null;
         }
 
+        /// <summary>
+        /// Get currently selected facet IDs from the Buildings tab.
+        /// Returns null if no facets are selected.
+        /// </summary>
+        public IEnumerable<int>? GetSelectedFacetIds()
+        {
+            // This should return selected facets from BuildingsTabViewModel or similar
+            // Implementation depends on how facet selection is tracked in your app
+            // For now, return null - implement based on your selection mechanism
+            return _selectedFacetIds;
+        }
+
+        private List<int>? _selectedFacetIds;
+        public void SetSelectedFacetIds(IEnumerable<int> facetIds)
+        {
+            _selectedFacetIds = facetIds?.ToList();
+        }
+
+        /// <summary>
+        /// Refresh the altitude layer after changes.
+        /// </summary>
+        public void RefreshAltitudeLayer()
+        {
+            AltitudeChangeBus.Instance.NotifyAll();
+        }
+
+        /// <summary>
+        /// Handle altitude tool click on a tile.
+        /// </summary>
+        public void HandleAltitudeToolClick(int tx, int ty)
+        {
+            if (_altitudeAccessor == null) return;
+
+            switch (SelectedTool)
+            {
+                case EditorTool.SetAltitude:
+                    // Apply altitude to brush-sized region
+                    int half = (BrushSize - 1) / 2;
+                    for (int dy = -half; dy <= half; dy++)
+                    {
+                        for (int dx = -half; dx <= half; dx++)
+                        {
+                            int ttx = tx + dx;
+                            int tty = ty + dy;
+                            if (ttx >= 0 && ttx < MapConstants.TilesPerSide &&
+                                tty >= 0 && tty < MapConstants.TilesPerSide)
+                            {
+                                _altitudeAccessor.WriteWorldAltitude(ttx, tty, TargetAltitude);
+                            }
+                        }
+                    }
+                    break;
+
+                case EditorTool.SampleAltitude:
+                    // Read altitude from clicked cell
+                    TargetAltitude = _altitudeAccessor.ReadWorldAltitude(tx, ty);
+                    break;
+
+                case EditorTool.ResetAltitude:
+                    // Reset altitude to 0 for brush-sized region
+                    half = (BrushSize - 1) / 2;
+                    for (int dy = -half; dy <= half; dy++)
+                    {
+                        for (int dx = -half; dx <= half; dx++)
+                        {
+                            int ttx = tx + dx;
+                            int tty = ty + dy;
+                            if (ttx >= 0 && ttx < MapConstants.TilesPerSide &&
+                                tty >= 0 && tty < MapConstants.TilesPerSide)
+                            {
+                                _altitudeAccessor.WriteWorldAltitude(ttx, tty, 0);
+                            }
+                        }
+                    }
+                    break;
+            }
+        }
 
 
         private static int ParseNumber(string relativeKey)

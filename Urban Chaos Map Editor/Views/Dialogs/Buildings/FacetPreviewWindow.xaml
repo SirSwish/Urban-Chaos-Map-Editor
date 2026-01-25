@@ -158,27 +158,6 @@
                                     Style="{StaticResource ActionButton}"
                                     Click="BtnRedraw_Click"
                                     ToolTip="Click to draw new endpoints on the map. First click = start (X0,Z0), second click = end (X1,Z1). Right-click to cancel."/>
-                            <Button x:Name="BtnDeleteFacet" 
-                                    Content="🗑️ Delete Facet" 
-                                    Margin="8,0,0,0"
-                                    Background="#5C2020"
-                                    Foreground="White"
-                                    BorderBrush="#802020"
-                                    BorderThickness="1"
-                                    Padding="12,6"
-                                    Cursor="Hand"
-                                    Click="BtnDeleteFacet_Click"
-                                    ToolTip="Delete this facet from the building.">
-                                <Button.Style>
-                                    <Style TargetType="Button">
-                                        <Style.Triggers>
-                                            <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter Property="Background" Value="#7C3030"/>
-                                            </Trigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Button.Style>
-                            </Button>
                         </StackPanel>
 
                         <!-- HEIGHTS SECTION -->
@@ -260,6 +239,13 @@
                                 </DataGrid.Columns>
                             </DataGrid>
                         </StackPanel>
+                        <!-- Paint Facet Button -->
+                        <Button x:Name="BtnPaintFacet" 
+                                Content="🎨 Paint Facet..." 
+                                Margin="0,10,0,0"
+                                Style="{StaticResource ActionButton}"
+                                Click="BtnPaintFacet_Click"
+                                ToolTip="Open the texture painter to paint individual cells of this facet."/>
                     </StackPanel>
                 </Border>
 

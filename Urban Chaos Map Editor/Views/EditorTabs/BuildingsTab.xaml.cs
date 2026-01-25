@@ -14,6 +14,8 @@ namespace UrbanChaosMapEditor.Views.EditorTabs
 {
     public partial class BuildingsTab : UserControl
     {
+        private bool _isWaitingForWalkableDrawing;
+
         public BuildingsTab()
         {
             InitializeComponent();
@@ -115,7 +117,12 @@ namespace UrbanChaosMapEditor.Views.EditorTabs
         {
             if (FacetsList.SelectedItem is BuildingsTabViewModel.FacetVM fvm)
             {
-                OpenFacetPreview(fvm);
+                // Use the cable editor for cable facets
+                if (fvm.Type == FacetType.Cable)
+                    OpenCableEditor(fvm);
+                else
+                    OpenFacetPreview(fvm);
+
                 e.Handled = true;
             }
         }
@@ -129,10 +136,16 @@ namespace UrbanChaosMapEditor.Views.EditorTabs
             if (DataContext is not BuildingsTabViewModel vm)
                 return;
 
-            if (sender is ListView lv)
+            if (sender is ListView lv && lv.SelectedItem is BuildingsTabViewModel.FacetVM fvm)
             {
-                var selected = lv.SelectedItem;
-                vm.HandleTreeSelection(selected);
+                // Set SelectedFacet so the delete button becomes visible
+                vm.SelectedFacet = fvm;
+                vm.HandleTreeSelection(fvm);
+            }
+            else if (sender is ListView lv2 && lv2.SelectedItem == null)
+            {
+                // Clear selection when nothing is selected
+                vm.SelectedFacet = null;
             }
         }
 
@@ -143,8 +156,9 @@ namespace UrbanChaosMapEditor.Views.EditorTabs
 
             if (lv.SelectedItem is BuildingsTabViewModel.FacetVM fvm)
             {
+                // Always use the cable editor for cables
                 if (fvm.Type == FacetType.Cable)
-                    OpenCablePreview(fvm);
+                    OpenCableEditor(fvm);
                 else
                     OpenFacetPreview(fvm);
 
@@ -264,6 +278,33 @@ namespace UrbanChaosMapEditor.Views.EditorTabs
             dlg.Show();
         }
 
+        /// <summary>
+        /// Opens the full Cable Editor window for editing cable parameters.
+        /// </summary>
+        private void OpenCableEditor(BuildingsTabViewModel.FacetVM fvm)
+        {
+            DFacetRec df = fvm.Raw;
+            int facetId = fvm.FacetId1;
+
+            var dlg = new CableFacetEditorWindow(df, facetId)
+            {
+                Owner = Application.Current.MainWindow
+            };
+
+            // Refresh the buildings tab if changes were saved
+            if (dlg.ShowDialog() == true)
+            {
+                if (DataContext is BuildingsTabViewModel vm)
+                {
+                    vm.Refresh();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Opens the older read-only Cable Preview window.
+        /// Kept for backwards compatibility but OpenCableEditor is preferred.
+        /// </summary>
         private void OpenCablePreview(BuildingsTabViewModel.FacetVM fvm)
         {
             DFacetRec df = fvm.Raw;
@@ -319,7 +360,7 @@ namespace UrbanChaosMapEditor.Views.EditorTabs
             }
         }
 
-        private void BtnAddFacet_Click(object sender, RoutedEventArgs e)
+        private void BtnAddWall_Click(object sender, RoutedEventArgs e)
         {
             if (DataContext is not BuildingsTabViewModel vm)
                 return;
@@ -332,7 +373,7 @@ namespace UrbanChaosMapEditor.Views.EditorTabs
                 return;
             }
 
-            var window = new AddFacetWindow(buildingId)
+            var window = new AddWallWindow(buildingId)
             {
                 Owner = Window.GetWindow(this)
             };
@@ -387,6 +428,204 @@ namespace UrbanChaosMapEditor.Views.EditorTabs
             addDoorWindow.Show();
         }
 
+        private void BtnAddWalkable_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is not BuildingsTabViewModel vm)
+                return;
+
+            int buildingId = vm.SelectedBuildingId;
+            if (buildingId <= 0)
+            {
+                MessageBox.Show("Please select a building first.",
+                    "Add Walkable", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            // Get MapViewModel from MainWindow
+            if (Application.Current.MainWindow?.DataContext is not MainWindowViewModel mainVm)
+            {
+                MessageBox.Show("Cannot access main window.",
+                    "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            // Enter walkable drawing mode
+            mainVm.Map.IsDrawingWalkable = true;
+            _isWaitingForWalkableDrawing = true;
+
+            mainVm.StatusMessage = "Click and drag on the map to define the walkable region, then release to set height...";
+
+            // Find MapView and subscribe to completion event
+            var mapView = FindMapViewInVisualTree();
+            if (mapView != null)
+            {
+                mapView.WalkableDrawingCompleted += OnWalkableDrawingCompleted;
+            }
+        }
+
+        private void OnWalkableDrawingCompleted(object? sender, EventArgs e)
+        {
+            if (!_isWaitingForWalkableDrawing)
+                return;
+
+            _isWaitingForWalkableDrawing = false;
+
+            // Unsubscribe from event
+            if (sender is MapView mapView)
+            {
+                mapView.WalkableDrawingCompleted -= OnWalkableDrawingCompleted;
+            }
+
+            if (DataContext is not BuildingsTabViewModel vm)
+                return;
+
+            if (Application.Current.MainWindow?.DataContext is not MainWindowViewModel mainVm)
+                return;
+
+            var mapVm = mainVm.Map;
+
+            // Get selected building
+            int buildingId = vm.SelectedBuildingId;
+            string buildingName = vm.SelectedBuilding?.DisplayName ?? $"Building #{buildingId}";
+
+            // Get selection rectangle
+            var rect = mapVm.GetWalkableSelectionRect();
+            if (!rect.HasValue)
+            {
+                mapVm.ClearWalkableSelection();
+                return;
+            }
+
+            // Show dialog for height input
+            var dialog = new AddWalkableWindow
+            {
+                Owner = Window.GetWindow(this),
+                BuildingId1 = buildingId,
+                BuildingName = buildingName,
+                TileX1 = rect.Value.MinX,
+                TileZ1 = rect.Value.MinY,
+                TileX2 = rect.Value.MaxX,
+                TileZ2 = rect.Value.MaxY
+            };
+
+            if (dialog.ShowDialog() == true)
+            {
+                // Convert UI tile coordinates to game tile coordinates (flip both axes)
+                int gameX1 = (MapConstants.TilesPerSide - 1) - rect.Value.MaxX;
+                int gameZ1 = (MapConstants.TilesPerSide - 1) - rect.Value.MaxY;
+                int gameX2 = (MapConstants.TilesPerSide - 1) - rect.Value.MinX;
+                int gameZ2 = (MapConstants.TilesPerSide - 1) - rect.Value.MinY;
+
+                var template = new WalkableTemplate
+                {
+                    BuildingId1 = buildingId,
+                    X1 = (byte)Math.Min(gameX1, gameX2),
+                    Z1 = (byte)Math.Min(gameZ1, gameZ2),
+                    X2 = (byte)Math.Max(gameX1, gameX2),
+                    Z2 = (byte)Math.Max(gameZ1, gameZ2),
+                    WorldY = dialog.WorldY,
+                    StoreyY = dialog.StoreyY
+                };
+
+                var adder = new WalkableAdder(MapDataService.Instance);
+                var result = adder.TryAddWalkable(template);
+
+                if (result.Success)
+                {
+                    mainVm.StatusMessage = $"Added walkable #{result.WalkableId1} to {buildingName}";
+
+                    // Refresh UI
+                    vm.Refresh();
+                    BuildingsChangeBus.Instance.NotifyChanged();
+                }
+                else
+                {
+                    MessageBox.Show($"Failed to add walkable:\n\n{result.Error}",
+                        "Add Walkable Failed", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+
+            // Clear selection and exit drawing mode
+            mapVm.ClearWalkableSelection();
+        }
+
+        private void BtnDeleteWalkable_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is not BuildingsTabViewModel vm)
+                return;
+
+            // Get selected walkable from the WalkablesList
+            if (WalkablesList.SelectedItem is not BuildingsTabViewModel.WalkableVM walkable)
+            {
+                MessageBox.Show("Please select a walkable from the list first.",
+                    "Delete Walkable", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            int walkableId = walkable.WalkableId1;
+            int buildingId = vm.SelectedBuildingId;
+
+            var confirm = MessageBox.Show(
+                $"Delete walkable #{walkableId} from Building #{buildingId}?\n\n" +
+                "This will also delete any associated RoofFace4 entries.",
+                "Confirm Delete",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (confirm != MessageBoxResult.Yes)
+                return;
+
+            var deleter = new WalkableDeleter(MapDataService.Instance);
+            var result = deleter.DeleteWalkable(walkableId);
+
+            if (result.Success)
+            {
+                if (Application.Current.MainWindow?.DataContext is MainWindowViewModel mainVm)
+                {
+                    string msg = $"Deleted walkable #{walkableId}";
+                    if (result.RoofFacesDeleted > 0)
+                        msg += $" and {result.RoofFacesDeleted} RoofFace4 entries";
+                    mainVm.StatusMessage = msg;
+                }
+
+                // Refresh UI
+                vm.Refresh();
+                BuildingsChangeBus.Instance.NotifyChanged();
+            }
+            else
+            {
+                MessageBox.Show($"Failed to delete walkable:\n\n{result.Error}",
+                    "Delete Failed", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        /// <summary>
+        /// Find the MapView control in the visual tree.
+        /// </summary>
+        private MapView? FindMapViewInVisualTree()
+        {
+            // Walk up to find MainWindow, then search down for MapView
+            var mainWindow = Application.Current.MainWindow;
+            if (mainWindow == null) return null;
+
+            return FindVisualChild<MapView>(mainWindow);
+        }
+
+        private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+        {
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                if (child is T found)
+                    return found;
+
+                var result = FindVisualChild<T>(child);
+                if (result != null)
+                    return result;
+            }
+            return null;
+        }
+
         private void BtnDeleteFacet_Click(object sender, RoutedEventArgs e)
         {
             if (DataContext is not BuildingsTabViewModel vm)
@@ -402,6 +641,18 @@ namespace UrbanChaosMapEditor.Views.EditorTabs
 
             int facetId = selectedFacet.FacetId1;
             int buildingId = selectedFacet.BuildingId;
+            bool isCable = selectedFacet.Type == FacetType.Cable;
+
+            // Confirm deletion
+            string itemType = isCable ? "cable" : "facet";
+            var confirmResult = MessageBox.Show(
+                $"Delete {itemType} #{facetId}?",
+                $"Confirm Delete",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (confirmResult != MessageBoxResult.Yes)
+                return;
 
             var deleter = new FacetDeleter(MapDataService.Instance);
             var result = deleter.TryDeleteFacet(facetId);
@@ -410,17 +661,53 @@ namespace UrbanChaosMapEditor.Views.EditorTabs
             {
                 if (Application.Current.MainWindow?.DataContext is MainWindowViewModel mainVm)
                 {
-                    mainVm.StatusMessage = $"Deleted facet #{facetId} from building #{buildingId}.";
+                    if (isCable)
+                        mainVm.StatusMessage = $"Deleted cable #{facetId}.";
+                    else
+                        mainVm.StatusMessage = $"Deleted facet #{facetId} from building #{buildingId}.";
                 }
 
+                vm.SelectedFacet = null;
                 vm.Refresh();
-                SelectNextFacetInBuilding(vm, buildingId);
+
+                // Only try to select next facet if it wasn't a cable
+                if (!isCable && buildingId > 0)
+                {
+                    SelectNextFacetInBuilding(vm, buildingId);
+                }
             }
             else
             {
-                MessageBox.Show($"Failed to delete facet:\n\n{result.ErrorMessage}",
+                MessageBox.Show($"Failed to delete {itemType}:\n\n{result.ErrorMessage}",
                     "Delete Failed", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        private void BtnAddCable_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is BuildingsTabViewModel vm)
+            {
+                // Auto-select Cables pill so the cable list becomes visible
+                vm.ShowCablesList = true;
+            }
+
+            var addCableWindow = new AddCableWindow
+            {
+                Owner = Window.GetWindow(this)
+            };
+
+            // Use Show() instead of ShowDialog() to allow interaction with the main window
+            // This is necessary for the "Draw on Map" feature to work
+            addCableWindow.Closed += (s, args) =>
+            {
+                // Refresh after the window is closed (whether cancelled or not)
+                if (!addCableWindow.WasCancelled && DataContext is BuildingsTabViewModel vmRefresh)
+                {
+                    vmRefresh.Refresh();
+                }
+            };
+
+            addCableWindow.Show();
         }
 
         private void BtnDeleteBuilding_Click(object sender, RoutedEventArgs e)

@@ -78,6 +78,10 @@
                         Visibility="{Binding ShowWalkables, Converter={StaticResource BoolToVis}}"
                         Panel.ZIndex="6"
                         IsHitTestVisible="False"/>
+                    <!-- Add to MapView.xaml, where other overlays are -->
+                    <ovl:AltitudeHoverLayer x:Name="AltitudeHoverLayer" 
+                             DataContext="{Binding}"
+                             Panel.ZIndex="50"/>
 
 
                     <!-- Ghost preview for texture painting -->

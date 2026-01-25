@@ -471,7 +471,7 @@
                 <!-- rail -->
                 <ColumnDefinition x:Name="EditorRailCol" Width="28"/>
                 <!-- drawer content -->
-                <ColumnDefinition x:Name="EditorDrawerCol" Width="285"/>
+                <ColumnDefinition x:Name="EditorDrawerCol" Width="350"/>
                 <!-- splitter -->
                 <ColumnDefinition Width="6"/>
                 <!-- main -->

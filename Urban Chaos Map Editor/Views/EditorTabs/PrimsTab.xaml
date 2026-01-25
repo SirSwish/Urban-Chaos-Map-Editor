@@ -94,23 +94,45 @@
 
                     <DataTemplate x:Key="PrimButtonTemplate">
                         <Button Width="56" Height="56"
-                                Margin="4" Padding="0"
-                                Click="PrimPalette_Click"
-                                Tag="{Binding}">
+            Margin="4" Padding="0"
+            Click="PrimPalette_Click"
+            Tag="{Binding}"
+            Background="Transparent"
+            BorderBrush="Transparent"
+            HorizontalContentAlignment="Center"
+            VerticalContentAlignment="Center">
                             <ToolTipService.ToolTip>
                                 <TextBlock>
-                                    <Run Text="{Binding Number, StringFormat={}{0:D3}}"/>
-                                    <Run Text=" - "/>
-                                    <Run Text="{Binding Title}"/>
+                <Run Text="{Binding Number, StringFormat={}{0:D3}}"/>
+                <Run Text=" - "/>
+                <Run Text="{Binding Title}"/>
                                 </TextBlock>
                             </ToolTipService.ToolTip>
-                            <Border BorderBrush="#444" BorderThickness="1" Background="#222">
+
+                            <Grid>
+                                <!-- Rounded tile background -->
+                                <Border Background="#222"
+                    BorderBrush="#444"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    SnapsToDevicePixels="True"/>
+
+                                <!-- Icon, clipped to the same rounded shape -->
                                 <Image Source="{Binding Icon}"
-                                       Stretch="Uniform"
-                                       RenderOptions.BitmapScalingMode="NearestNeighbor"/>
-                            </Border>
+                   Margin="2"
+                   Stretch="Uniform"
+                   RenderOptions.BitmapScalingMode="NearestNeighbor">
+                                    <Image.Clip>
+                                        <!-- 56x56 button, 2px margin each side -> 52x52 clip -->
+                                        <RectangleGeometry Rect="0,0,52,52"
+                                       RadiusX="8"
+                                       RadiusY="8" />
+                                    </Image.Clip>
+                                </Image>
+                            </Grid>
                         </Button>
                     </DataTemplate>
+
                 </TabControl.Resources>
 
                 <!-- CITY ASSETS -->

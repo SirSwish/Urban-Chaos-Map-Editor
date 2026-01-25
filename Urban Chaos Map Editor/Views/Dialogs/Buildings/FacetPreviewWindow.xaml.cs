@@ -435,7 +435,7 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
                 PaintedSummaryText.Text = $"Base style: {ds.StyleIndex}   PaintMem: Index={ds.PaintIndex} Count={ds.Count}";
                 RecipeText.Text = BuildRawRecipeString(ds.StyleIndex);
 
-                var bytes = GetPaintBytes(ds);
+                var bytes = GetPaintBytes(ref ds);
                 PaintBytesHexText.Text = ToHexLine(bytes);
 
                 var rows = new ObservableCollection<PaintByteVM>();
@@ -476,7 +476,7 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             {
                 var e = style.Entries[i];
                 if (i > 0) sb.Append(" | ");
-                sb.Append($"[{i}] P{e.Page} Tx{e.Tx} Ty{e.Ty} F{e.Flip}");
+                sb.Append($"[{i}] P{e.Page} Tx{e.Tx} Ty{e.Flip}");
             }
             return sb.ToString();
         }
@@ -493,16 +493,22 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             return sb.ToString();
         }
 
-        private byte[] GetPaintBytes(in BuildingArrays.DStoreyRec ds)
+        private byte[] GetPaintBytes(ref BuildingArrays.DStoreyRec ds)
         {
-            if (_paintMem.Length == 0 || ds.Count == 0) return Array.Empty<byte>();
-            int start = ds.PaintIndex;
+            // Count is SBYTE - negative values have special meaning, treat as 0
             int count = ds.Count;
-            if (start < 0 || start + count > _paintMem.Length) return Array.Empty<byte>();
-            var bytes = new byte[count];
-            Buffer.BlockCopy(_paintMem, start, bytes, 0, count);
-            return bytes;
+            if (count <= 0)
+                return Array.Empty<byte>();
+
+            int start = ds.PaintIndex;
+            if (_paintMem == null || start < 0 || start + count > _paintMem.Length)
+                return Array.Empty<byte>();
+
+            var result = new byte[count];
+            Array.Copy(_paintMem, start, result, 0, count);
+            return result;
         }
+
 
         #endregion
 
@@ -860,10 +866,10 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
             int styleIndexStart = _facet.StyleIndex;
             if (twoTextured) styleIndexStart--;
 
-            int paintedRows = Math.Max(0, panelsDown - 1);
+            // For multi-band walls, each band has its own dstyle entry
+            // Band 0 = bottom, Band 1 = middle, etc.
+            // styleRow should directly map to rowFromBottom
             int styleRow = rowFromBottom;
-            if (paintedRows > 0 && rowFromBottom < paintedRows)
-                styleRow = (rowFromBottom + 1) % paintedRows;
 
             int styleIndexForRow = styleIndexStart + styleRow * styleIndexStep;
             if (styleIndexForRow < 0 || styleIndexForRow >= _dstyles.Length) return false;
@@ -893,9 +899,10 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
                 return ResolveRawTileId(dstyleValue, pos, count, out tileId, out flip);
 
             int storeyId = -dstyleValue;
-            if (_storeys == null || storeyId < 1 || storeyId > _storeys.Length) return false;
+            if (_storeys == null || storeyId < 1 || storeyId >= _storeys.Length) return false;
 
-            var ds = _storeys[storeyId - 1];
+            if (storeyId >= _storeys.Length) return false;  // Bounds check
+            var ds = _storeys[storeyId];  // storeys array includes slot 0
             return ResolvePaintedTileId(ds, pos, count, out tileId, out flip);
         }
 
@@ -1047,5 +1054,54 @@ namespace UrbanChaosMapEditor.Views.Dialogs.Buildings
         }
 
         #endregion
+
+        #region Paint Facet
+
+        private void BtnPaintFacet_Click(object sender, RoutedEventArgs e)
+        {
+            // Don't allow painting ladders or doors - they don't use style textures
+            if (_facet.Type == FacetType.Ladder)
+            {
+                MessageBox.Show("Ladders cannot be painted - they use procedural textures.",
+                    "Cannot Paint", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            if (_facet.Type == FacetType.Door || _facet.Type == FacetType.InsideDoor || _facet.Type == FacetType.OutsideDoor)
+            {
+                MessageBox.Show("Doors cannot be painted - they render as solid black.",
+                    "Cannot Paint", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            // Open the painter window
+            var painter = new FacetPainterWindow(_facet, _facetIndex1)
+            {
+                Owner = this
+            };
+
+            if (painter.ShowDialog() == true)
+            {
+                // Reload the facet data and refresh the preview
+                var arrays = new BuildingsAccessor(MapDataService.Instance).ReadSnapshot();
+
+                // Re-read the facet in case it was modified
+                if (arrays.Facets != null && _facetIndex1 >= 1 && _facetIndex1 <= arrays.Facets.Length)
+                {
+                    // Note: We keep the same _facet reference for coordinates etc,
+                    // but the style/paint data is in the arrays
+                    _dstyles = arrays.Styles ?? Array.Empty<short>();
+                    _paintMem = arrays.PaintMem ?? Array.Empty<byte>();
+                    _storeys = arrays.Storeys ?? Array.Empty<BuildingArrays.DStoreyRec>();
+
+                    // Refresh UI
+                    SummarizeStyleAndRecipe(_facet);
+                    DrawPreview(_facet);
+                }
+            }
+        }
+
+        #endregion
     }
+
 }

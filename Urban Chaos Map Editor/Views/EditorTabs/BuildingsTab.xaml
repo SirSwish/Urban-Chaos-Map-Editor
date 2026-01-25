@@ -125,6 +125,13 @@
             <Setter Property="FontSize" Value="14"/>
         </Style>
 
+        <!-- Make Grid headers (Walkables, RoofFace4, Cables) white on dark -->
+        <Style TargetType="GridViewColumnHeader">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background" Value="#444"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+
         <!-- Facet color converter -->
         <conv:FacetTypeToBrushConverter x:Key="FacetTypeToBrush"/>
     </UserControl.Resources>
@@ -176,9 +183,10 @@
         <!-- Main content area -->
         <Grid Margin="8">
             <Grid.RowDefinitions>
-                <RowDefinition Height="*" />
+                <!-- Give top row more weight and make middle row star-sized so it can't grow unbounded -->
+                <RowDefinition Height="2*" />
                 <RowDefinition Height="6" />
-                <RowDefinition Height="Auto" MinHeight="120" />
+                <RowDefinition Height="*" MinHeight="120" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
@@ -198,9 +206,10 @@
                     </Grid.Style>
 
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="70" />
+                        <!-- Narrower buildings/types columns so text wraps -->
+                        <ColumnDefinition Width="60" />
                         <ColumnDefinition Width="4" />
-                        <ColumnDefinition Width="100" />
+                        <ColumnDefinition Width="90" />
                         <ColumnDefinition Width="4" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
@@ -225,7 +234,9 @@
                                      BorderThickness="0">
                                 <ListBox.ItemTemplate>
                                     <DataTemplate DataType="{x:Type vm:BuildingVM}">
-                                        <TextBlock Text="{Binding ShortDisplayName}" FontSize="11"/>
+                                        <TextBlock Text="{Binding ShortDisplayName}"
+                                                   FontSize="11"
+                                                   TextWrapping="Wrap"/>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
                             </ListBox>
@@ -264,7 +275,9 @@
                                                     </MultiBinding>
                                                 </Ellipse.Fill>
                                             </Ellipse>
-                                            <TextBlock Text="{Binding TypeName}" FontSize="11"/>
+                                            <TextBlock Text="{Binding TypeName}"
+                                                       FontSize="11"
+                                                       TextWrapping="Wrap"/>
                                         </StackPanel>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
@@ -347,14 +360,14 @@
                                 <GridView>
                                     <GridViewColumn Header="#" Width="50"
                                                     DisplayMemberBinding="{Binding FacetId1}"/>
-                                    <GridViewColumn Header="Coords" Width="160"
+                                    <GridViewColumn Header="Coords" Width="200"
                                                     DisplayMemberBinding="{Binding Coords}"/>
-                                    <GridViewColumn Header="Height" Width="60"
+                                    <GridViewColumn Header="Segments" Width="70"
                                                     DisplayMemberBinding="{Binding Height}"/>
-                                    <GridViewColumn Header="Sag / Angles" Width="180"
-                                                    DisplayMemberBinding="{Binding StyleDisplay}"/>
-                                    <GridViewColumn Header="Flags" Width="80"
-                                                    DisplayMemberBinding="{Binding Flags}"/>
+                                    <GridViewColumn Header="Y0" Width="60"
+                                                    DisplayMemberBinding="{Binding Y0}"/>
+                                    <GridViewColumn Header="Y1" Width="60"
+                                                    DisplayMemberBinding="{Binding Y1}"/>
                                 </GridView>
                             </ListView.View>
                         </ListView>
@@ -385,7 +398,7 @@
                                    FontWeight="Bold"
                                    FontSize="11"
                                    Margin="0,0,0,4"
-                                   Text="Walkables (Selected Building)"/>
+                                   Text="Walkables"/>
                         <ListView x:Name="WalkablesList"
                                   ItemsSource="{Binding SelectedBuildingWalkables}"
                                   SelectionChanged="WalkablesList_OnSelectionChanged"
@@ -394,12 +407,12 @@
                                   BorderThickness="0">
                             <ListView.View>
                                 <GridView>
-                                    <GridViewColumn Header="#" Width="40" DisplayMemberBinding="{Binding WalkableId1}"/>
-                                    <GridViewColumn Header="Rect" Width="150" DisplayMemberBinding="{Binding Rect}"/>
-                                    <GridViewColumn Header="Y" Width="45" DisplayMemberBinding="{Binding Y}"/>
-                                    <GridViewColumn Header="StoreyY" Width="55" DisplayMemberBinding="{Binding StoreyY}"/>
-                                    <GridViewColumn Header="Face4" Width="80" DisplayMemberBinding="{Binding Face4Span}"/>
-                                    <GridViewColumn Header="Next" Width="50" DisplayMemberBinding="{Binding Next}"/>
+                                    <GridViewColumn Header="#"
+                        Width="Auto"
+                        DisplayMemberBinding="{Binding WalkableId1}"/>
+                                    <GridViewColumn Header="Rect"
+                        Width="Auto"
+                        DisplayMemberBinding="{Binding Rect}"/>
                                 </GridView>
                             </ListView.View>
                         </ListView>
@@ -413,7 +426,7 @@
                                    FontWeight="Bold"
                                    FontSize="11"
                                    Margin="0,0,0,4"
-                                   Text="RoofFace4 (Selected Walkable)"/>
+                                   Text="RoofFace4"/>
                         <ListView x:Name="RoofFaces4List"
                                   ItemsSource="{Binding SelectedWalkableRoofFaces4}"
                                   MouseDoubleClick="RoofFaces4List_OnMouseDoubleClick"
@@ -421,13 +434,15 @@
                                   BorderThickness="0">
                             <ListView.View>
                                 <GridView>
-                                    <GridViewColumn Header="#" Width="40" DisplayMemberBinding="{Binding FaceId}"/>
-                                    <GridViewColumn Header="Y" Width="45" DisplayMemberBinding="{Binding Y}"/>
-                                    <GridViewColumn Header="DY" Width="80" DisplayMemberBinding="{Binding DY}"/>
-                                    <GridViewColumn Header="RX" Width="45" DisplayMemberBinding="{Binding RX}"/>
-                                    <GridViewColumn Header="RZ" Width="45" DisplayMemberBinding="{Binding RZ}"/>
-                                    <GridViewColumn Header="Flags" Width="55" DisplayMemberBinding="{Binding DrawFlags}"/>
-                                    <GridViewColumn Header="Next" Width="50" DisplayMemberBinding="{Binding Next}"/>
+                                    <GridViewColumn Header="#"
+                        Width="Auto"
+                        DisplayMemberBinding="{Binding FaceId}"/>
+                                    <GridViewColumn Header="Y"
+                        Width="Auto"
+                        DisplayMemberBinding="{Binding Y}"/>
+                                    <GridViewColumn Header="DY"
+                        Width="Auto"
+                        DisplayMemberBinding="{Binding DY}"/>
                                 </GridView>
                             </ListView.View>
                         </ListView>
@@ -443,104 +458,362 @@
                     Padding="8"
                     Margin="0,8,0,0"
                     Background="#1A1D20">
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
-                    <!-- Add Building -->
-                    <Button Content="➕"
-                            Style="{StaticResource CompactActionButton}"
-                            Background="#205C27"
-                            BorderBrush="#208020"
-                            ToolTip="Add a new empty building to the map"
-                            Click="BtnAddBuilding_Click"
-                            Margin="0,0,4,0"/>
 
-                    <!-- Add Facets (visible when building selected) -->
-                    <Button Content="📐"
-                            Style="{StaticResource CompactActionButton}"
-                            Background="#205C5C"
-                            BorderBrush="#207080"
-                            ToolTip="Add facets to the selected building by drawing on the map"
-                            Click="BtnAddFacet_Click"
-                            Margin="0,0,4,0">
-                        <Button.Visibility>
-                            <Binding Path="HasSelectedBuildingRec" Mode="OneWay">
-                                <Binding.Converter>
-                                    <BooleanToVisibilityConverter/>
-                                </Binding.Converter>
-                            </Binding>
-                        </Button.Visibility>
-                    </Button>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
 
-                    <!-- Add Ladder (visible when building selected) -->
-                    <Button Content="🪜"
-                            Style="{StaticResource CompactActionButton}"
-                            Background="#4A3520"
-                            BorderBrush="#6A5530"
-                            ToolTip="Add a ladder to the selected building (1 cell width)"
-                            Click="BtnAddLadder_Click"
-                            Margin="0,0,4,0">
-                        <Button.Visibility>
-                            <Binding Path="HasSelectedBuildingRec" Mode="OneWay">
-                                <Binding.Converter>
-                                    <BooleanToVisibilityConverter/>
-                                </Binding.Converter>
-                            </Binding>
-                        </Button.Visibility>
-                    </Button>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="8"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
 
-                    <!-- Add Door (visible when building selected) -->
-                    <Button Content="🚪"
-                            Style="{StaticResource CompactActionButton}"
-                            Background="#2D4A5A"
-                            BorderBrush="#4A6A7A"
-                            ToolTip="Add a door to the selected building (1 cell width and height)"
-                            Click="BtnAddDoor_Click"
-                            Margin="0,0,16,0">
-                        <Button.Visibility>
-                            <Binding Path="HasSelectedBuildingRec" Mode="OneWay">
-                                <Binding.Converter>
-                                    <BooleanToVisibilityConverter/>
-                                </Binding.Converter>
-                            </Binding>
-                        </Button.Visibility>
-                    </Button>
+                    <Rectangle Grid.Column="1" Grid.RowSpan="2" VerticalAlignment="Stretch"
+                                                   Width="1"
+                                                   Fill="#444"
+                                                   HorizontalAlignment="Center"
+                                                   Margin="0,2,0,2"/>
 
-                    <!-- Separator -->
-                    <Rectangle Width="1" Fill="#444" Margin="0,2,16,2"/>
+                    <UniformGrid Grid.Row="0" Grid.Column="0"
+                                                     Rows="2"
+                                                     Columns="4"
+                                                     HorizontalAlignment="Left">
 
-                    <!-- Delete Facet (visible when facet selected) -->
-                    <Button Content="🗑️"
-                            Style="{StaticResource CompactActionButton}"
-                            Background="#5C3020"
-                            BorderBrush="#804020"
-                            ToolTip="Delete the selected facet"
-                            Click="BtnDeleteFacet_Click"
-                            Margin="0,0,4,0">
-                        <Button.Visibility>
-                            <Binding Path="HasSelectedFacet" Mode="OneWay">
-                                <Binding.Converter>
-                                    <BooleanToVisibilityConverter/>
-                                </Binding.Converter>
-                            </Binding>
-                        </Button.Visibility>
-                    </Button>
+                        <!-- Add Building -->
+                        <Button Style="{StaticResource CompactActionButton}"
+                                                    Width="30" Height="30"
+                                                    Padding="0"
+                                                    Background="Transparent"
+                                                    BorderBrush="Transparent"
+                                                    ToolTip="Add a new empty building to the map"
+                                                    Click="BtnAddBuilding_Click"
+                                                    Margin="0,0,4,4"
+                                                    HorizontalContentAlignment="Center"
+                                                    VerticalContentAlignment="Center">
+                            <Image Source="/Assets/Icons/addbuilding.ico"
+                                                       Width="30" Height="30"
+                                                       SnapsToDevicePixels="True"
+                                                       RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                        </Button>
 
-                    <!-- Delete Building (visible when building selected) -->
-                    <Button Content="🏚️"
-                            Style="{StaticResource CompactActionButton}"
-                            Background="#5C2020"
-                            BorderBrush="#802020"
-                            ToolTip="Delete the selected building and all its facets, walkables, and roof faces"
-                            Click="BtnDeleteBuilding_Click">
-                        <Button.Visibility>
-                            <Binding Path="HasSelectedBuildingRec" Mode="OneWay">
-                                <Binding.Converter>
-                                    <BooleanToVisibilityConverter/>
-                                </Binding.Converter>
-                            </Binding>
-                        </Button.Visibility>
-                    </Button>
-                </StackPanel>
+                        <!-- Add Walls (visible when building selected) -->
+                        <Button Style="{StaticResource CompactActionButton}"
+                                                    Width="30" Height="30"
+                                                    Padding="0"
+                                                    Background="Transparent"
+                                                    BorderBrush="Transparent"
+                                                    ToolTip="Add wall to the selected building by drawing on the map"
+                                                    Click="BtnAddWall_Click"
+                                                    Margin="0,0,4,4"
+                                                    HorizontalContentAlignment="Center"
+                                                    VerticalContentAlignment="Center">
+                            <Button.Visibility>
+                                <Binding Path="HasSelectedBuildingRec" Mode="OneWay">
+                                    <Binding.Converter>
+                                        <BooleanToVisibilityConverter/>
+                                    </Binding.Converter>
+                                </Binding>
+                            </Button.Visibility>
+                            <Image Source="/Assets/Icons/addfacet.ico"
+                                                       Width="30" Height="30"
+                                                       SnapsToDevicePixels="True"
+                                                       RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                        </Button>
+
+                        <!-- Add Ladder (visible when building selected) -->
+                        <Button Style="{StaticResource CompactActionButton}"
+                                                    Width="30" Height="30"
+                                                    Padding="0"
+                                                    Background="Transparent"
+                                                    BorderBrush="Transparent"
+                                                    ToolTip="Add a ladder to the selected building (1 cell width)"
+                                                    Click="BtnAddLadder_Click"
+                                                    Margin="0,0,4,4"
+                                                    HorizontalContentAlignment="Center"
+                                                    VerticalContentAlignment="Center">
+                            <Button.Visibility>
+                                <Binding Path="HasSelectedBuildingRec" Mode="OneWay">
+                                    <Binding.Converter>
+                                        <BooleanToVisibilityConverter/>
+                                    </Binding.Converter>
+                                </Binding>
+                            </Button.Visibility>
+                            <Image Source="/Assets/Icons/addladder.ico"
+                                                       Width="30" Height="30"
+                                                       SnapsToDevicePixels="True"
+                                                       RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                        </Button>
+
+                        <!-- Add Door (visible when building selected) -->
+                        <Button Style="{StaticResource CompactActionButton}"
+                                                    Width="30" Height="30"
+                                                    Padding="0"
+                                                    Background="Transparent"
+                                                    BorderBrush="Transparent"
+                                                    ToolTip="Add a door to the selected building (1 cell width and height)"
+                                                    Click="BtnAddDoor_Click"
+                                                    Margin="0,0,4,4"
+                                                    HorizontalContentAlignment="Center"
+                                                    VerticalContentAlignment="Center">
+                            <Button.Visibility>
+                                <Binding Path="HasSelectedBuildingRec" Mode="OneWay">
+                                    <Binding.Converter>
+                                        <BooleanToVisibilityConverter/>
+                                    </Binding.Converter>
+                                </Binding>
+                            </Button.Visibility>
+                            <Image Source="/Assets/Icons/adddoor.ico"
+                                                       Width="30" Height="30"
+                                                       SnapsToDevicePixels="True"
+                                                       RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                        </Button>
+
+                        <!-- Add Cable (always visible) -->
+                        <Button Style="{StaticResource CompactActionButton}"
+                                                    Width="30" Height="30"
+                                                    Padding="0"
+                                                    Background="Transparent"
+                                                    BorderBrush="Transparent"
+                                                    ToolTip="Add a new cable between two points"
+                                                    Click="BtnAddCable_Click"
+                                                    Margin="0,0,4,0"
+                                                    HorizontalContentAlignment="Center"
+                                                    VerticalContentAlignment="Center">
+                            <Image Source="/Assets/Icons/addcable.ico"
+                                                       Width="30" Height="30"
+                                                       SnapsToDevicePixels="True"
+                                                       RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                        </Button>
+
+                        <!-- Add Fences (placeholder – visible when building selected) -->
+                        <Button Style="{StaticResource CompactActionButton}"
+                                                    Width="30" Height="30"
+                                                    Padding="0"
+                                                    Background="Transparent"
+                                                    BorderBrush="Transparent"
+                                                    ToolTip="Add fences to the selected building"
+                                                    Margin="0,0,4,0"
+                                                    HorizontalContentAlignment="Center"
+                                                    VerticalContentAlignment="Center">
+                            <Button.Visibility>
+                                <Binding Path="HasSelectedBuildingRec" Mode="OneWay">
+                                    <Binding.Converter>
+                                        <BooleanToVisibilityConverter/>
+                                    </Binding.Converter>
+                                </Binding>
+                            </Button.Visibility>
+                            <Image Source="/Assets/Icons/addfence.ico"
+                                                       Width="30" Height="30"
+                                                       SnapsToDevicePixels="True"
+                                                       RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                        </Button>
+
+                        <!-- Add Gate (placeholder – visible when building selected) -->
+                        <Button Style="{StaticResource CompactActionButton}"
+                                                    Width="30" Height="30"
+                                                    Padding="0"
+                                                    Background="Transparent"
+                                                    BorderBrush="Transparent"
+                                                    ToolTip="Add a gate to the selected building"
+                                                    Margin="0,0,4,0"
+                                                    HorizontalContentAlignment="Center"
+                                                    VerticalContentAlignment="Center">
+                            <Button.Visibility>
+                                <Binding Path="HasSelectedBuildingRec" Mode="OneWay">
+                                    <Binding.Converter>
+                                        <BooleanToVisibilityConverter/>
+                                    </Binding.Converter>
+                                </Binding>
+                            </Button.Visibility>
+                            <Image Source="/Assets/Icons/addgate.ico"
+                                                       Width="30" Height="30"
+                                                       SnapsToDevicePixels="True"
+                                                       RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                        </Button>
+
+                        <!-- Add Walkable (visible when building selected) -->
+
+
+                    </UniformGrid>
+
+                    <StackPanel Grid.Row="0" Grid.Column="2"
+                                                    Orientation="Vertical"
+                                                    HorizontalAlignment="Right">
+
+                        <!-- Delete Building (visible when building selected) -->
+                        <Button Style="{StaticResource CompactActionButton}"
+                                                    Width="30" Height="30"
+                                                    Padding="0"
+                                                    Background="Transparent"
+                                                    BorderBrush="Transparent"
+                                                    ToolTip="Delete the selected building and all its facets, walkables, and roof faces"
+                                                    Click="BtnDeleteBuilding_Click"
+                                                    Margin="0,0,0,4"
+                                                    HorizontalContentAlignment="Center"
+                                                    VerticalContentAlignment="Center">
+                            <Button.Visibility>
+                                <Binding Path="HasSelectedBuildingRec" Mode="OneWay">
+                                    <Binding.Converter>
+                                        <BooleanToVisibilityConverter/>
+                                    </Binding.Converter>
+                                </Binding>
+                            </Button.Visibility>
+                            <Image Source="/Assets/Icons/deletebuilding.ico"
+                                                       Width="30" Height="30"
+                                                       SnapsToDevicePixels="True"
+                                                       RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                        </Button>
+
+                        <!-- Delete Facet (visible when facet selected) -->
+                        <Button Style="{StaticResource CompactActionButton}"
+                                                    Width="30" Height="30"
+                                                    Padding="0"
+                                                    Background="Transparent"
+                                                    BorderBrush="Transparent"
+                                                    ToolTip="Delete the selected facet"
+                                                    Click="BtnDeleteFacet_Click"
+                                                    Margin="0,0,0,4"
+                                                    HorizontalContentAlignment="Center"
+                                                    VerticalContentAlignment="Center">
+                            <Button.Visibility>
+                                <Binding Path="HasSelectedFacet" Mode="OneWay">
+                                    <Binding.Converter>
+                                        <BooleanToVisibilityConverter/>
+                                    </Binding.Converter>
+                                </Binding>
+                            </Button.Visibility>
+                            <Image Source="/Assets/Icons/deletefacet.ico"
+                                                       Width="30" Height="30"
+                                                       SnapsToDevicePixels="True"
+                                                       RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                        </Button>
+
+                        <!-- Delete Walkable (visible when building selected - handler checks if walkable is selected) -->
+
+
+                    </StackPanel>
+
+                    <!-- ROW 1: Walkables + Roof Face 4 (same row) -->
+                    <StackPanel Grid.Row="1" Grid.Column="0"
+                                Orientation="Horizontal"
+                                HorizontalAlignment="Left"
+                                Margin="0,8,0,0">
+                        <Button x:Name="BtnAddWalkable"
+                                                                                Style="{StaticResource CompactActionButton}"
+                                                                                Width="30" Height="30"
+                                                                                Padding="0"
+                                                                                Background="#2D5A2D"
+                                                                                BorderBrush="#4A8A4A"
+                                                                                ToolTip="Add a walkable roof region to the selected building (for ledge grabbing)"
+                                                                                Click="BtnAddWalkable_Click"
+                                                                                Margin="0,0,4,0"
+                                                                                HorizontalContentAlignment="Center"
+                                                                                VerticalContentAlignment="Center">
+                            <Button.Visibility>
+                                <Binding Path="HasSelectedBuildingRec" Mode="OneWay">
+                                    <Binding.Converter>
+                                        <BooleanToVisibilityConverter/>
+                                    </Binding.Converter>
+                                </Binding>
+                            </Button.Visibility>
+                            <TextBlock Text="W+" 
+                                                                                       FontWeight="Bold" 
+                                                                                       FontSize="11" 
+                                                                                       Foreground="#90EE90"
+                                                                                       VerticalAlignment="Center"
+                                                                                       HorizontalAlignment="Center"/>
+                        </Button>
+                        <Button x:Name="BtnAddRoofFace4"
+                                IsEnabled="True"
+                                Style="{StaticResource CompactActionButton}"
+                                Width="30" Height="30"
+                                Background="#2D5A2D"
+                                BorderBrush="#4A8A4A"
+                                Foreground="#FF2ECC71"
+                                ToolTip="Add Roof Face 4 (placeholder)">
+                            <Button.Visibility>
+                                <Binding Path="HasSelectedBuildingRec">
+                                    <Binding.Converter>
+                                        <BooleanToVisibilityConverter/>
+                                    </Binding.Converter>
+                                </Binding>
+                            </Button.Visibility>
+                            <TextBlock Text="R4+"
+                                       FontWeight="Bold"
+                                       FontSize="11"
+                                       Foreground="#90EE90"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                        </Button>
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="1" Grid.Column="1"
+                               Text="Walkables / Roof Face 4"
+                               Foreground="{DynamicResource Brush.TextMuted}"
+                               FontSize="12"
+                               VerticalAlignment="Center"
+                               HorizontalAlignment="Center"
+                               Margin="0,8,0,0"/>
+
+                    <StackPanel Grid.Row="1" Grid.Column="2"
+                                Orientation="Horizontal"
+                                HorizontalAlignment="Left"
+                                Margin="0,8,0,0">
+                        <Button x:Name="BtnDeleteWalkable"
+                                                                                Style="{StaticResource CompactActionButton}"
+                                                                                Width="30" Height="30"
+                                                                                Padding="0"
+                                                                                Background="#5A2D2D"
+                                                                                BorderBrush="#8A4A4A"
+                                                                                ToolTip="Delete the selected walkable"
+                                                                                Click="BtnDeleteWalkable_Click"
+                                                                                HorizontalContentAlignment="Center"
+                                                                                VerticalContentAlignment="Center">
+                            <Button.Visibility>
+                                <Binding Path="HasSelectedBuildingRec" Mode="OneWay">
+                                    <Binding.Converter>
+                                        <BooleanToVisibilityConverter/>
+                                    </Binding.Converter>
+                                </Binding>
+                            </Button.Visibility>
+                            <TextBlock Text="W-" 
+                                                                                       FontWeight="Bold" 
+                                                                                       FontSize="11" 
+                                                                                       Foreground="#FF6B6B"
+                                                                                       VerticalAlignment="Center"
+                                                                                       HorizontalAlignment="Center"/>
+                        </Button>
+                        <Button x:Name="BtnDeleteRoofFace4"
+                                IsEnabled="True"
+                                Style="{StaticResource CompactActionButton}"
+                                Width="30" Height="30"
+                                Margin="4,0,0,0"
+                                Background="#5A2D2D"
+                                BorderBrush="#8A4A4A"
+                                Foreground="#FFE74C3C"
+                                ToolTip="Delete Roof Face 4 (placeholder)">
+                            <Button.Visibility>
+                                <Binding Path="HasSelectedBuildingRec">
+                                    <Binding.Converter>
+                                        <BooleanToVisibilityConverter/>
+                                    </Binding.Converter>
+                                </Binding>
+                            </Button.Visibility>
+                            <TextBlock Text="R4-"
+                                       FontWeight="Bold"
+                                       FontSize="11"
+                                       Foreground="#FF6B6B"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+
             </Border>
+
         </Grid>
     </DockPanel>
 </UserControl>

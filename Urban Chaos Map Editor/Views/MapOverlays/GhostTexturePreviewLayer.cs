@@ -16,6 +16,16 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
     {
         private MapViewModel? _vm;
 
+        // Selection rectangle border
+        private static readonly Brush SelectionStrokeBrush = new SolidColorBrush(Color.FromArgb(255, 50, 150, 255)); // bright blue
+        private static readonly Pen SelectionPen = new Pen(SelectionStrokeBrush, 3);
+
+        static GhostTexturePreviewLayer()
+        {
+            SelectionStrokeBrush.Freeze();
+            SelectionPen.Freeze();
+        }
+
         public GhostTexturePreviewLayer()
         {
             Width = MapConstants.MapPixels;
@@ -50,7 +60,13 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
                 e.PropertyName == nameof(MapViewModel.SelectedRotationIndex) ||
                 e.PropertyName == nameof(MapViewModel.TextureWorld) ||
                 e.PropertyName == nameof(MapViewModel.UseBetaTextures) ||
-                e.PropertyName == nameof(MapViewModel.BrushSize))   // 🆕
+                e.PropertyName == nameof(MapViewModel.BrushSize) ||
+                // Rectangle selection properties
+                e.PropertyName == nameof(MapViewModel.IsPaintingTexture) ||
+                e.PropertyName == nameof(MapViewModel.TextureSelectionStartX) ||
+                e.PropertyName == nameof(MapViewModel.TextureSelectionStartY) ||
+                e.PropertyName == nameof(MapViewModel.TextureSelectionEndX) ||
+                e.PropertyName == nameof(MapViewModel.TextureSelectionEndY))
             {
                 Dispatcher.Invoke(InvalidateVisual);
             }
@@ -69,7 +85,6 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
         protected override void OnRender(DrawingContext dc)
         {
             if (_vm is null || _vm.SelectedTool != EditorTool.PaintTexture) return;
-            if (_hoverTile is null) return;
             if (_vm.SelectedTextureNumber <= 0) return;
 
             var cache = TextureCacheService.Instance;
@@ -85,16 +100,63 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
 
             if (!cache.TryGetRelative(relKey, out var bmp) || bmp is null) return;
 
-            int size = Math.Max(1, _vm.BrushSize);
             int rotIndex = ((_vm.SelectedRotationIndex % 4) + 4) % 4;
             double angle = rotIndex switch { 0 => 180, 1 => 90, 2 => 0, 3 => 270, _ => 0 };
 
-            dc.PushOpacity(0.55);
-            for (int dy = 0; dy < size; dy++)
-                for (int dx = 0; dx < size; dx++)
+            // Check if we're in rectangle selection mode
+            if (_vm.IsPaintingTexture)
+            {
+                var rect = _vm.GetTextureSelectionRect();
+                if (rect.HasValue)
                 {
-                    int tx = _hoverTile.Value.tx + dx;
-                    int ty = _hoverTile.Value.ty + dy;
+                    DrawSelectionPreview(dc, bmp, angle, rect.Value);
+                    return;
+                }
+            }
+
+            // Normal hover preview (single tile or brush)
+            if (_hoverTile is null) return;
+
+            int size = Math.Max(1, _vm.BrushSize);
+            DrawTexturePreview(dc, bmp, angle, _hoverTile.Value.tx, _hoverTile.Value.ty, size, size);
+        }
+
+        /// <summary>
+        /// Draw texture preview for rectangle selection mode.
+        /// </summary>
+        private void DrawSelectionPreview(DrawingContext dc, ImageSource bmp, double angle,
+            (int MinX, int MinY, int MaxX, int MaxY) rect)
+        {
+            int width = rect.MaxX - rect.MinX + 1;
+            int height = rect.MaxY - rect.MinY + 1;
+
+            // Draw texture preview across entire selection
+            DrawTexturePreview(dc, bmp, angle, rect.MinX, rect.MinY, width, height);
+
+            // Draw selection border
+            double x = rect.MinX * MapConstants.TileSize;
+            double y = rect.MinY * MapConstants.TileSize;
+            double w = width * MapConstants.TileSize;
+            double h = height * MapConstants.TileSize;
+            dc.DrawRectangle(null, SelectionPen, new Rect(x, y, w, h));
+
+            // Draw size label
+            DrawSelectionLabel(dc, x, y, width, height);
+        }
+
+        /// <summary>
+        /// Draw texture preview for a rectangular area.
+        /// </summary>
+        private void DrawTexturePreview(DrawingContext dc, ImageSource bmp, double angle,
+            int startX, int startY, int width, int height)
+        {
+            dc.PushOpacity(0.55);
+            for (int dy = 0; dy < height; dy++)
+            {
+                for (int dx = 0; dx < width; dx++)
+                {
+                    int tx = startX + dx;
+                    int ty = startY + dy;
                     if (tx < 0 || tx >= MapConstants.TilesPerSide ||
                         ty < 0 || ty >= MapConstants.TilesPerSide) continue;
 
@@ -113,7 +175,29 @@ namespace UrbanChaosMapEditor.Views.MapOverlays
                         dc.Pop();
                     }
                 }
+            }
             dc.Pop();
+        }
+
+        /// <summary>
+        /// Draw size label above selection rectangle.
+        /// </summary>
+        private void DrawSelectionLabel(DrawingContext dc, double x, double y, int width, int height)
+        {
+            int tileCount = width * height;
+            string sizeText = $"{width}×{height} ({tileCount})";
+
+            var typeface = new Typeface("Segoe UI");
+            double ppd = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+
+            var ft = new FormattedText(sizeText, System.Globalization.CultureInfo.InvariantCulture,
+                FlowDirection.LeftToRight, typeface, 12, Brushes.Yellow, ppd);
+
+            // Draw with shadow for visibility
+            dc.DrawText(new FormattedText(sizeText, System.Globalization.CultureInfo.InvariantCulture,
+                FlowDirection.LeftToRight, typeface, 12, Brushes.Black, ppd),
+                new Point(x + 5, y - 17));
+            dc.DrawText(ft, new Point(x + 4, y - 18));
         }
     }
 }
